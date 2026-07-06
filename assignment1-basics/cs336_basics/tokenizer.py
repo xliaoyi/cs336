@@ -5,6 +5,7 @@ import numpy as np
 
 from tqdm import tqdm
 from typing import BinaryIO, List, Tuple, Dict, Iterable
+from functools import lru_cache
 
 
 class Tokenizer:
@@ -16,6 +17,8 @@ class Tokenizer:
 			self.special_tokens = []
 		else:
 			self.special_tokens = special_tokens
+		self.merge_ranks = {pair: rank for rank, pair in enumerate(merges)}
+		self.PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 	
 	@classmethod
 	def from_files(cls, vocab_filepath, merges_filepath, special_tokens = None):
@@ -35,7 +38,7 @@ class Tokenizer:
 		merges = [
 			(bytes(a), bytes(b))
 			for a, b in json_merges
-			]
+		]
 		
 		# handle new special tokens
 		if special_tokens is not None:
@@ -47,6 +50,37 @@ class Tokenizer:
 					next_id += 1
 		
 		return cls(vocab, merges, special_tokens)
+	
+	@lru_cache(maxsize=100_000)
+	def apply_bpe(self, token_bytes):
+		token_bytes = [bytes([b]) for b in token_bytes]
+
+		while True:
+			bytes_pairs = list(zip(token_bytes[:-1], token_bytes[1:]))
+			rank = float('inf')
+			best_pair = None
+			for pair in bytes_pairs:
+				pair_rank = self.merge_ranks.get(pair, float('inf'))
+				if pair_rank < rank:
+					rank = pair_rank
+					best_pair = pair
+			if rank == float('inf'):
+				break
+			
+			# merge
+			i = 0
+			merged_token_bytes = []
+			while i < len(token_bytes):
+				if i + 1 < len(token_bytes) and (token_bytes[i], token_bytes[i + 1]) == best_pair:
+					merged_token_bytes.append(token_bytes[i] + token_bytes[i+1])
+					i += 2
+				else:
+					merged_token_bytes.append(token_bytes[i])
+					i += 1
+			token_bytes = merged_token_bytes
+
+		return tuple(token_bytes)
+
 
 	def encode(self, text):
 		# split text based on special tokens
@@ -56,8 +90,6 @@ class Tokenizer:
 			parts = re.split(f"({escaped})", text)
 		else:
 			parts = [text]
-
-		PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 		
 		text_token_list = []
 		for part in parts:
@@ -68,29 +100,9 @@ class Tokenizer:
 				text_token_list.append([part.encode('utf-8')])
 				continue
 			
-			for t in re.finditer(PAT, part):
+			for t in re.finditer(self.PAT, part):
 				m = t.group().encode("utf-8")
-				text_token_list.append([bytes([b]) for b in m])
-
-		# check if text_token_list is 2d list (split by special token or not)
-		if len(text_token_list) == 0 or not isinstance(text_token_list[0], list):
-			text_token_list = [text_token_list]
-
-		# merge -- apply bpe
-		for tu in self.merges:
-			merged_text_token_list = []
-			for part in text_token_list:
-				i = 0
-				merged_part = []
-				while i < len(part):
-					if i < len(part) - 1 and (part[i], part[i + 1]) == tu:
-						merged_part.append(part[i] + part[i + 1])
-						i += 2
-					else:
-						merged_part.append(part[i])
-						i += 1
-				merged_text_token_list.append(merged_part)
-			text_token_list = merged_text_token_list
+				text_token_list.append(self.apply_bpe(m))
 		
 		# flatten
 		text_token_list = [x for row in text_token_list for x in row]
