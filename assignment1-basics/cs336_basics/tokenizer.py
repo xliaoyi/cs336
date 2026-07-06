@@ -3,6 +3,7 @@ import regex as re
 import json
 import numpy as np
 
+from tqdm import tqdm
 from typing import BinaryIO, List, Tuple, Dict, Iterable
 
 
@@ -121,12 +122,12 @@ if __name__ == "__main__":
 
 	
 	with open("../data/TinyStoriesV2-GPT4-train.txt", "r", encoding="utf-8") as f:
-		ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
+		ids = np.fromiter(tokenizer.encode_iterable(tqdm(f, desc="Tokenizing")), dtype=np.uint16)
 
 	np.save("tiny_stories_train.npy", ids)
 
 	with open("../data/TinyStoriesV2-GPT4-valid.txt", "r", encoding="utf-8") as f:
-		ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
+		ids = np.fromiter(tokenizer.encode_iterable(tqdm(f, desc="Tokenizing")), dtype=np.uint16)
 
 	np.save("tiny_stories_valid.npy", ids)
 
