@@ -9,6 +9,7 @@ from typing import BinaryIO, List, Tuple, Dict, Iterable
 class Tokenizer:
 	def __init__(self, vocab, merges, special_tokens = None):
 		self.vocab = vocab
+		self.vocab_inverse = {v: k for k, v in self.vocab.items()}
 		self.merges = merges
 		if special_tokens is None:
 			self.special_tokens = []
@@ -93,8 +94,7 @@ class Tokenizer:
 		# flatten
 		text_token_list = [x for row in text_token_list for x in row]
 
-		vocab_inverse = {v: k for k, v in self.vocab.items()}
-		text_id_list = [vocab_inverse[token] for token in text_token_list]
+		text_id_list = [self.vocab_inverse[token] for token in text_token_list]
 		return text_id_list
 
 
@@ -120,11 +120,15 @@ if __name__ == "__main__":
 	)
 
 	
-	with open("../data/TinyStoriesV2-GPT4-train.txt") as f:
+	with open("../data/TinyStoriesV2-GPT4-train.txt", "r", encoding="utf-8") as f:
 		ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
 
 	np.save("tiny_stories_train.npy", ids)
 
+	with open("../data/TinyStoriesV2-GPT4-valid.txt", "r", encoding="utf-8") as f:
+		ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
+
+	np.save("tiny_stories_valid.npy", ids)
 
 	# owt
 	# tokenizer = Tokenizer.from_files(
