@@ -18,7 +18,7 @@ class Linear(nn.Module):
         super().__init__()
 
         self.W = nn.Parameter(
-            torch.empty(in_features, out_features, dtype = dtype, device = device)
+            torch.empty(out_features, in_features, dtype = dtype, device = device)
         )
 
         params_std = torch.sqrt(torch.tensor(2/(in_features + out_features)))
@@ -99,7 +99,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.device = device
 
     def forward(self, x, token_positions):
-        k = torch.arange(self.d_k // 2, device=self.device)
+        k = torch.arange(self.d_k // 2, device=x.device)
         token_positions = rearrange(token_positions, "... -> ... 1") # ... seq_len 1
         angle = token_positions / (torch.pow(self.theta, 2*k / self.d_k)) # ... seq_len d_k/2
         sin_angle = torch.sin(angle)

@@ -161,3 +161,6 @@ cython_debug/
 
 .ruff_cache/
 *.zip
+
+cs336_basics/tiny_stories*
+cs336_basics/wandb/

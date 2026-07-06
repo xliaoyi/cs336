@@ -1,0 +1,27 @@
+uv run python train.py \
+    --train_path ./tiny_stories_train.npy \
+    --valid_path ./tiny_stories_valid.npy \
+    --batch_size 32 \
+    --context_length 256 \
+    --device cuda:1 \
+    --vocab_size 10000 \
+    --num_layers 12 \
+    --d_model 512 \
+    --num_heads 16 \
+    --d_ff 1344 \
+    --theta 10000.0 \
+    --lr 3e-4 \
+    --beta1 0.9 \
+    --beta2 0.95 \
+    --eps 1e-8 \
+    --weight_decay 0.1 \
+    --n_iter 100000 \
+    --checkpoint_path_prefix checkpoints/model \
+    --max_l2_norm 1.0 \
+    --alpha_max 1.0 \
+    --alpha_min 0.1 \
+    --T_w 2000 \
+    --T_c 100000 \
+    --valid_interval 500 \
+    --checkpoint_interval 1000 \
+    --validation_batches 20
