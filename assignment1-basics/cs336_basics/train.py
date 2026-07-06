@@ -1,6 +1,8 @@
 import torch
 import argparse
 import numpy as np
+import time
+import wandb
 
 from cs336_basics.transformer import *
 
@@ -28,15 +30,22 @@ parser.add_argument("--alpha_max", type = float, help = '')
 parser.add_argument("--alpha_min", type = float, help = '')
 parser.add_argument("--T_w", type = int, help = '')
 parser.add_argument("--T_c", type = int, help = '')
-parser.add_argument("--valid_checkpoint_interval", type = int, help = '')
+parser.add_argument("--valid_interval", type = int, help = '')
+parser.add_argument("--checkpoint_interval", type = int, help = '')
 parser.add_argument("--validation_batches", type = int, help = '')
 
 args = parser.parse_args()
 
 def main():
+    start = time.perf_counter()
+
     train_data = np.load(args.train_path, mmap_mode='r')
 
+    print(f"Load training set, spent {time.perf_counter() - start}")
+
     valid_data = np.load(args.valid_path, mmap_mode='r')
+
+    print(f"Load validation set, spent {time.perf_counter() - start}")
 
     model = TransformerLM(
         args.vocab_size,
@@ -55,6 +64,8 @@ def main():
         args.eps,
         args.weight_decay
     )
+
+    wandb.init(project="cs336-assignment1", config=vars(args))
 
     completed_steps = 0
     for t in range(args.n_iter):
@@ -84,9 +95,10 @@ def main():
 
         # Optimizer step
         opt.step()
+        completed_steps = t + 1
 
         # Periodically validate and checkpoint
-        if completed_steps % args.valid_checkpoint_interval == 0:
+        if completed_steps % args.valid_interval == 0:
             valid_loss_sum = 0
             model.eval()
             with torch.no_grad():
@@ -98,14 +110,28 @@ def main():
                     loss_valid = cross_entropy(y_valid, valid_next_tokens)
                     valid_loss_sum += loss_valid.item()
                 valid_loss_mean = valid_loss_sum / args.validation_batches
-            print(f"Iteration {t}: Train loss: {loss.item()}, validation loss: {valid_loss_mean}")
-            save_checkpoint(model, opt, completed_steps, f"{args.checkpoint_path_prefix}_iter{completed_steps}")
+            print(
+                f"Iteration {t}: Train loss: {loss.item()}, validation loss: {valid_loss_mean}, spent {time.perf_counter() - start}")
             model.train()
 
-        completed_steps = t + 1
-    
+            wandb.log({
+                "step": completed_steps,
+                "train_loss": loss.item(),
+                "val_loss": valid_loss_mean,
+                "wall_time": time.perf_counter() - start,
+            })
+        
+        if completed_steps % args.checkpoint_interval == 0:
+            save_checkpoint(
+                model, opt, completed_steps, f"{args.checkpoint_path_prefix}_iter{completed_steps}"
+            )
+
+    wandb.finish()
+
     # final model
-    save_checkpoint(model, opt, completed_steps, f"{args.checkpoint_path_prefix}_final_iter{completed_steps}")
+    save_checkpoint(
+        model, opt, completed_steps, f"{args.checkpoint_path_prefix}_final_iter{completed_steps}"
+    )
 
 if __name__ == "__main__":
     main()
