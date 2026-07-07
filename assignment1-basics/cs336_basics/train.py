@@ -33,19 +33,17 @@ parser.add_argument("--T_c", type=int, default=100000, help="Cosine decay steps.
 parser.add_argument("--valid_interval", type=int, default=500, help="Validation interval (steps).")
 parser.add_argument("--checkpoint_interval", type=int, default=1000, help="Checkpoint interval (steps).")
 parser.add_argument("--validation_batches", type=int, default=20, help="Number of validation batches.")
+parser.add_argument("--job_name", type=str, help="Wandb job name.")
 
 args = parser.parse_args()
 
 def main():
-    start = time.perf_counter()
 
     train_data = np.load(args.train_path, mmap_mode='r')
-
-    print(f"Load training set, spent {time.perf_counter() - start}")
-
     valid_data = np.load(args.valid_path, mmap_mode='r')
 
-    print(f"Load validation set, spent {time.perf_counter() - start}")
+    print(f"**Loaded training data from {args.train_path}")
+    print(f"**Loaded validation data from {args.valid_path}")
 
     model = TransformerLM(
         args.vocab_size,
@@ -65,9 +63,11 @@ def main():
         args.weight_decay
     )
 
-    wandb.init(project="cs336-assignment1", config=vars(args))
+    wandb.init(project="cs336-assignment1", name=args.job_name, config=vars(args))
 
     completed_steps = 0
+
+    start = time.perf_counter()
     for t in range(args.n_iter):
         # Set scheduled learning rate
         for group in opt.param_groups:
@@ -110,8 +110,12 @@ def main():
                     loss_valid = cross_entropy(y_valid, valid_next_tokens)
                     valid_loss_sum += loss_valid.item()
                 valid_loss_mean = valid_loss_sum / args.validation_batches
+            elapsed_min = (time.perf_counter() - start) / 60
             print(
-                f"Iteration {t}: Train loss: {loss.item()}, validation loss: {valid_loss_mean}, spent {time.perf_counter() - start}")
+                f"Iteration {t:3d} | Train Loss: {loss.item():.4f} | "
+                f"Val Loss: {valid_loss_mean:.4f} | "
+                f"Elapsed: {elapsed_min:.2f} min"
+            )
             model.train()
 
             wandb.log({

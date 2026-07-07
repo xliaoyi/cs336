@@ -239,9 +239,6 @@ class TransformerLM(nn.Module):
         self.context_length = context_length
         self.num_layers = num_layers
         self.emb = Embedding(vocab_size, d_model)
-        # self.rmsnorm1 = RMSNorm(d_model)
-        # self.rmsnorm2 = RMSNorm(d_model)
-        # self.transformer_block = TransformerBlock(d_model, num_heads, d_ff, context_length, theta)
         self.layers = nn.ModuleList(
             [TransformerBlock(d_model, num_heads, d_ff, context_length, theta) for _ in range(num_layers)]
         )
