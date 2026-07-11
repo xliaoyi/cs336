@@ -21,7 +21,7 @@ parser.add_argument("--device", type=str, default="cuda", help="Device to train 
 parser.add_argument("--vocab_size", type=int, default=32000, help="Vocabulary size.")
 parser.add_argument("--num_layers", type=int, default=4, help="Number of Transformer layers.")
 parser.add_argument("--d_model", type=int, default=512, help="Transformer hidden dimension.")
-parser.add_argument("--num_heads", type=int, default=32, help="Number of attention heads.")
+parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads.")
 parser.add_argument("--d_ff", type=int, default=1344, help="Feed-forward hidden dimension.")
 parser.add_argument("--theta", type=float, default=10000.0, help="RoPE base frequency.")
 parser.add_argument("--beta1", type=float, default=0.9, help="AdamW beta1.")
@@ -117,8 +117,9 @@ def main():
         )
 
         opt.zero_grad()
-        y = model(train_input_tokens)
-        loss = cross_entropy(y, train_next_tokens)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            y = model(train_input_tokens)
+            loss = cross_entropy(y, train_next_tokens)
         loss.backward()
         gradient_clipping(model.parameters(), args.max_l2_norm)
         opt.step()

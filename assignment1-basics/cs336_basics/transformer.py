@@ -1,5 +1,6 @@
 import torch
 import math
+import torch.nn.functional as F
 
 from torch import nn, Tensor
 from einops import rearrange, einsum
@@ -113,7 +114,7 @@ class RotaryPositionalEmbedding(nn.Module):
 
         y = torch.stack([y_even, y_odd], dim = -1) # ... seq_len d_k/2 2
         y = rearrange(y, "... even odd -> ... (even odd)")
-        return y
+        return y.to(x.dtype)  # keep dtype stable under autocast (rotation done in fp32)
 
 
 def softmax(
@@ -127,30 +128,13 @@ def softmax(
     return res
 
 
-def scaled_dot_product_attention(Q, K, V, mask):
-    QK = einsum(
-        Q, K, 
-        "... seq_len_q d_k, ... seq_len_k d_k -> ... seq_len_q seq_len_k"
-    ) # ... seq_len seq_len
-    sqrt_d_k = K.shape[-1] ** 0.5
-    norm_QK = QK / sqrt_d_k
-    if mask is not None:
-        norm_QK = norm_QK + torch.where(mask, 0, -torch.inf)
-    scaled_QK = softmax(norm_QK, -1)
-    attn = einsum(
-        scaled_QK, V, 
-        "... seq_len_q seq_len_k, ... seq_len_k d_v -> ... seq_len_q d_v"
-    )
-    return attn
-
-
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, d_model, num_heads, max_seq_len=None, theta=None):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
         assert d_model % num_heads == 0
-        self.d_k = d_model / num_heads
+        self.d_k = d_model // num_heads
         self.WQ = Linear(d_model, d_model)
         self.WK = Linear(d_model, d_model)
         self.WV = Linear(d_model, d_model)
@@ -185,18 +169,11 @@ class MultiHeadSelfAttention(nn.Module):
             Q = self.rope(Q, token_positions)
             K = self.rope(K, token_positions)
 
-        # mask
-        seq_len = x.shape[-2]
-        mask = torch.ones(seq_len, seq_len, dtype = torch.bool, device = x.device)
-        mask = torch.tril(mask)
+        # causal scaled dot-product attention (fused/flash kernel; scale = 1/sqrt(d_k))
+        attn = F.scaled_dot_product_attention(Q, K, V, is_causal=True) # ... num_heads seq_len d_k
 
-        # multi head attantion
-        attn = scaled_dot_product_attention(Q, K, V, mask) # ... num_heads seq_len d_k
-
-        # concat
+        # concat heads
         multi_attn = rearrange(attn, "... num_heads seq_len d_k -> ... seq_len (num_heads d_k)")
-
-        # Linear
         return self.WO(multi_attn)
 
 
@@ -255,6 +232,7 @@ class TransformerLM(nn.Module):
         return x
 
 def cross_entropy(o, x):
+    o = o.float()  # 32000-way logsumexp in fp32 (safe under bf16 autocast; no-op in fp32 eval)
     max_o = torch.amax(o, dim = -1, keepdim=True)
     o = o - max_o
     x = rearrange(x, "... -> ... 1")
