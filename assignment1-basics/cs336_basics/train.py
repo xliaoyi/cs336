@@ -90,13 +90,21 @@ def main():
     start_total = time.perf_counter()
     step = 0
     clock_start = None
+    # Wall-clock-driven LR schedule: robust to throughput / step-count changes.
+    # Warmup over the first few % of the budget, then cosine anneal to alpha_min
+    # exactly at the end of the budget. The schedule clock aligns with the budget
+    # clock (both start after step 1, so first-step compile/warmup is excluded).
+    T_w_sec = 0.03 * args.train_seconds
+    T_c_sec = args.train_seconds
 
     while True:
-        # Set scheduled learning rate
+        # Set scheduled learning rate from elapsed training seconds
+        elapsed_sched = 0.0 if clock_start is None else time.perf_counter() - clock_start
+        lr = learning_rate_schedule(
+            elapsed_sched, args.alpha_max, args.alpha_min, T_w_sec, T_c_sec
+        )
         for group in opt.param_groups:
-            group['lr'] = learning_rate_schedule(
-                step, args.alpha_max, args.alpha_min, args.T_w, args.T_c
-            )
+            group['lr'] = lr
 
         # Sample training batch
         train_input_tokens, train_next_tokens = data_loading(
