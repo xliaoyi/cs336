@@ -220,6 +220,8 @@ class TransformerLM(nn.Module):
         )
         self.rmsnorm3 = RMSNorm(d_model)
         self.linear = Linear(d_model, vocab_size)
+        # Weight tying: share the input embedding and output projection (both [vocab, d_model]).
+        self.linear.W = self.emb.e
 
     def forward(self, x):
         x = self.emb(x) # ... seq_length d_model
