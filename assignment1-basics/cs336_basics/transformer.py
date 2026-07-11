@@ -239,58 +239,6 @@ def cross_entropy(o, x):
     nll = torch.log(torch.sum(torch.exp(o), keepdim=True, dim = -1)) - torch.gather(o, dim=-1, index=x)
     return torch.mean(nll)
 
-class AdamW(torch.optim.Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay):
-        if lr < 0:
-            raise ValueError(f"Invalid learning rate: {lr}")
-        if eps < 0:
-            raise ValueError(f"Invalid epsilon: {eps}")
-        if weight_decay < 0:
-            raise ValueError(f"Invalid weight decay: {weight_decay}")
-        if len(betas) != 2:
-            raise ValueError(f"Invalid betas: {betas}")
-        defaults = {
-            'lr': lr,
-            'betas': betas,
-            'eps': eps,
-            'weight_decay': weight_decay
-        }
-        super().__init__(params, defaults)
-
-    @torch.no_grad()
-    def step(self, closure: Optional[Callable] = None):
-        loss = None if closure is None else closure()
-        for group in self.param_groups:
-            lr = group['lr']
-            for p in group['params']:
-                if p.grad is None:
-                    continue
-
-                state = self.state[p]
-                
-                if len(state) == 0:
-                    state["t"] = 0
-                    state["m"] = torch.zeros_like(p)
-                    state["v"] = torch.zeros_like(p)
-                t = state["t"] + 1
-                m = state["m"]
-                v = state["v"]
-                
-                
-                g = p.grad
-                lr_t = lr * (1-group['betas'][1]**t)**0.5 / (1-group['betas'][0]**t)
-                p.sub_(lr * group['weight_decay'] * p)
-                m = group['betas'][0] * m + (1-group['betas'][0]) * g
-                v = group['betas'][1] * v + (1-group['betas'][1]) * g**2
-
-                state['t'] = t
-                state['m'] = m
-                state['v'] = v
-
-                p.sub_(lr_t * m / (torch.sqrt(v) + group['eps']))
-        return loss
-
-
 def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
     if t < T_w:
         return t * alpha_max / T_w
@@ -298,20 +246,6 @@ def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
         return alpha_min + 0.5 * (1+math.cos((t - T_w)*math.pi / (T_c - T_w))) * (alpha_max - alpha_min)
     else:
         return alpha_min
-
-@torch.no_grad()
-def gradient_clipping(parameters, max_l2_norm):
-    l2_norm = 0
-    parameters = list(parameters)
-    for p in parameters:
-        if p.grad is not None:
-            l2_norm = l2_norm + p.grad.square().sum()
-    
-    l2_norm = l2_norm ** 0.5
-    if l2_norm > max_l2_norm:
-        for p in parameters:
-            if p.grad is not None:
-                p.grad.mul_(max_l2_norm / (l2_norm + 1e-6))
 
 def data_loading(x, batch_size, context_length, device):
     # x is a 1-D token tensor already resident on `device`; gather random windows

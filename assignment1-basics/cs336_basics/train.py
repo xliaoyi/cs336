@@ -5,6 +5,8 @@ import time
 
 from cs336_basics.transformer import *
 
+torch.set_float32_matmul_precision('high')  # TF32 for any fp32 matmul (e.g. eval)
+
 # ----- fixed harness constants: do NOT change these across experiments -----
 TRAIN_SECONDS = 600.0   # wall-clock training budget, excludes startup and final eval
 CONTEXT_LENGTH = 512    # fixed sequence length
@@ -78,12 +80,13 @@ def main():
         args.theta,
     ).to(args.device)
 
-    opt = AdamW(
+    opt = torch.optim.AdamW(
         model.parameters(),
-        args.alpha_max,
-        (args.beta1, args.beta2),
-        args.eps,
-        args.weight_decay
+        lr=args.alpha_max,
+        betas=(args.beta1, args.beta2),
+        eps=args.eps,
+        weight_decay=args.weight_decay,
+        fused=True,
     )
 
     num_params = sum(p.numel() for p in model.parameters())
@@ -121,7 +124,7 @@ def main():
             y = model(train_input_tokens)
             loss = cross_entropy(y, train_next_tokens)
         loss.backward()
-        gradient_clipping(model.parameters(), args.max_l2_norm)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_l2_norm, foreach=True)
         opt.step()
         step += 1
 
