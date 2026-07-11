@@ -1,16 +1,16 @@
 uv run python train.py \
-    --train_path ./tiny_stories_train.npy \
-    --valid_path ./tiny_stories_valid.npy \
+    --train_path ./owt_train.npy \
+    --valid_path ./owt_valid.npy \
     --batch_size 32 \
-    --context_length 256 \
+    --context_length 512 \
     --device cuda:1 \
-    --vocab_size 10000 \
+    --vocab_size 32000 \
     --num_layers 4 \
     --d_model 512 \
-    --num_heads 16 \
+    --num_heads 32 \
     --d_ff 1344 \
     --theta 10000.0 \
-    --lr 3e-2 \
+    --lr 3e-4 \
     --beta1 0.9 \
     --beta2 0.95 \
     --eps 1e-8 \
@@ -18,11 +18,11 @@ uv run python train.py \
     --n_iter 40000 \
     --checkpoint_path_prefix ../checkpoints/model \
     --max_l2_norm 1.0 \
-    --alpha_max 3e-4 \
+    --alpha_max 3e-3 \
     --alpha_min 3e-5 \
     --T_w 2000 \
     --T_c 100000 \
     --valid_interval 500 \
     --checkpoint_interval 10000 \
     --validation_batches 20 \
-    --job_name gpt2
+    --job_name owt_lr3e-4_cxt512
