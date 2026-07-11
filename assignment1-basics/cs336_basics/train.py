@@ -80,6 +80,8 @@ def main():
         args.theta,
     ).to(args.device)
 
+    model = torch.compile(model, dynamic=False)  # static shapes; first-step compile excluded from budget
+
     opt = torch.optim.AdamW(
         model.parameters(),
         lr=args.alpha_max,
