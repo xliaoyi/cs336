@@ -43,7 +43,9 @@ class Embedding(nn.Module):
             torch.empty(num_embeddings, embedding_dim, dtype = dtype, device = device)
         )
 
-        params_std = torch.sqrt(torch.tensor(2/(num_embeddings + embedding_dim)))
+        # Fixed GPT-2-style std (the fan-in+fan-out formula collapses to ~0.008 at
+        # vocab=32000, which weakens the token signal and, under weight tying, the logit scale).
+        params_std = 0.02
         torch.nn.init.trunc_normal_(
             self.e, mean = 0, std = params_std,
             a = -3.0*params_std, b = 3.0*params_std
