@@ -6,7 +6,6 @@ from einops import rearrange, einsum
 from jaxtyping import Bool, Float, Int
 from typing import Optional
 from collections.abc import Callable, Iterable
-from turtle import forward
 from .tokenizer import Tokenizer
 
 
@@ -337,17 +336,13 @@ def gradient_clipping(parameters, max_l2_norm):
                 p.grad.mul_(max_l2_norm / (l2_norm + 1e-6))
 
 def data_loading(x, batch_size, context_length, device):
-    low = 0
-    high = len(x) - context_length
-    samples = torch.randint(low, high, (batch_size,))
-    samples = rearrange(samples, "length -> length 1")
-    context = torch.arange(context_length)
+    # x is a 1-D token tensor already resident on `device`; gather random windows
+    # entirely on-device (no per-step numpy fancy-indexing or host->device copy).
+    high = x.shape[0] - context_length
+    samples = torch.randint(0, high, (batch_size, 1), device=device)
+    context = torch.arange(context_length, device=device)
     idx0 = samples + context
-    sub_x0 = torch.LongTensor(x[idx0])
-    idx1 = samples + context + 1
-    sub_x1 = torch.LongTensor(x[idx1])
-
-    return (sub_x0.to(device = device), sub_x1.to(device = device))
+    return x[idx0].long(), x[idx0 + 1].long()
 
 
 def save_checkpoint(

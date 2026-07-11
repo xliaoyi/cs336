@@ -57,7 +57,12 @@ def evaluate(model, valid_data, num_seqs, device):
 
 
 def main():
-    train_data = np.load(args.train_path, mmap_mode='r')
+    # Train data lives entirely on the GPU to avoid per-step memmap reads + H->D copy.
+    # uint16 has no torch dtype; reinterpret as int16 (all ids < 32000 < 32768, so the
+    # bit pattern is preserved and values stay non-negative).
+    train_np = np.load(args.train_path)
+    train_data = torch.from_numpy(train_np.view(np.int16)).to(args.device)
+    del train_np
     valid_data = np.load(args.valid_path, mmap_mode='r')
 
     print(f"**Loaded training data from {args.train_path}", flush=True)
