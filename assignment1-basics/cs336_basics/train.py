@@ -27,7 +27,7 @@ parser.add_argument("--num_heads", type=int, default=8, help="Number of attentio
 parser.add_argument("--d_ff", type=int, default=1344, help="Feed-forward hidden dimension.")
 parser.add_argument("--theta", type=float, default=10000.0, help="RoPE base frequency.")
 parser.add_argument("--beta1", type=float, default=0.9, help="AdamW beta1.")
-parser.add_argument("--beta2", type=float, default=0.98, help="AdamW beta2.")
+parser.add_argument("--beta2", type=float, default=0.99, help="AdamW beta2.")
 parser.add_argument("--eps", type=float, default=1e-8, help="AdamW epsilon.")
 parser.add_argument("--weight_decay", type=float, default=0.2, help="Weight decay coefficient.")
 parser.add_argument("--max_l2_norm", type=float, default=2.0, help="Gradient clipping L2 norm.")
