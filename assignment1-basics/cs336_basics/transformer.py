@@ -241,20 +241,23 @@ class TransformerBlock(nn.Module):
         self.rmsnorm2 = RMSNorm(self.d_model)
         self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, theta)
         self.ffn = FFN(d_model, d_ff)
+        # Learnable per-sublayer residual scales (LayerScale-style; init 1.0 = no-op)
+        self.attn_scale = nn.Parameter(torch.ones(1))
+        self.ffn_scale = nn.Parameter(torch.ones(1))
 
     def forward(self, x, v0=None, ve=None):
         y = self.rmsnorm1(x)
         token_positions = torch.arange(x.shape[-2], device = x.device)
         y, v_out = self.attn(y, token_positions, v0, ve)
 
-        # residual connection
-        y = y + x
+        # residual connection (learnable scale)
+        y = x + self.attn_scale * y
 
         z = self.rmsnorm2(y)
         z = self.ffn(z)
 
-        # residual connection
-        z = z + y
+        # residual connection (learnable scale)
+        z = y + self.ffn_scale * z
 
         return z, v_out
 
