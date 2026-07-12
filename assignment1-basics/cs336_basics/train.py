@@ -59,6 +59,9 @@ def evaluate(model, valid_data, num_seqs, device):
 
 
 def main():
+    # Fixed seed (init + data-batch sampling) so experiment A/B comparisons are clean.
+    torch.manual_seed(0)
+
     # Train data lives entirely on the GPU to avoid per-step memmap reads + H->D copy.
     # uint16 has no torch dtype; reinterpret as int16 (all ids < 32000 < 32768, so the
     # bit pattern is preserved and values stay non-negative).
