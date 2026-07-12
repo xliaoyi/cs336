@@ -1,6 +1,5 @@
 import torch
 import math
-import torch.nn.functional as F
 
 from torch import nn, Tensor
 from einops import rearrange, einsum
@@ -130,6 +129,23 @@ def softmax(
     return res
 
 
+def scaled_dot_product_attention(Q, K, V, mask):
+    QK = einsum(
+        Q, K,
+        "... seq_len_q d_k, ... seq_len_k d_k -> ... seq_len_q seq_len_k"
+    )
+    sqrt_d_k = K.shape[-1] ** 0.5
+    norm_QK = QK / sqrt_d_k
+    if mask is not None:
+        norm_QK = norm_QK + torch.where(mask, 0.0, -torch.inf)
+    scaled_QK = softmax(norm_QK, -1)
+    attn = einsum(
+        scaled_QK, V,
+        "... seq_len_q seq_len_k, ... seq_len_k d_v -> ... seq_len_q d_v"
+    )
+    return attn
+
+
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, d_model, num_heads, max_seq_len=None, theta=None):
         super().__init__()
@@ -171,8 +187,11 @@ class MultiHeadSelfAttention(nn.Module):
             Q = self.rope(Q, token_positions)
             K = self.rope(K, token_positions)
 
-        # causal scaled dot-product attention (fused/flash kernel; scale = 1/sqrt(d_k))
-        attn = F.scaled_dot_product_attention(Q, K, V, is_causal=True) # ... num_heads seq_len d_k
+        # causal mask (hand-written attention; no torch.nn.functional)
+        seq_len = x.shape[-2]
+        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device))
+
+        attn = scaled_dot_product_attention(Q, K, V, mask) # ... num_heads seq_len d_k
 
         # concat heads
         multi_attn = rearrange(attn, "... num_heads seq_len d_k -> ... seq_len (num_heads d_k)")
@@ -243,6 +262,48 @@ def cross_entropy(o, x):
     nll = torch.log(torch.sum(torch.exp(o), keepdim=True, dim = -1)) - torch.gather(o, dim=-1, index=x)
     return torch.mean(nll)
 
+class AdamW(torch.optim.Optimizer):
+    def __init__(self, params, lr, betas, eps, weight_decay):
+        if lr < 0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if eps < 0:
+            raise ValueError(f"Invalid epsilon: {eps}")
+        if weight_decay < 0:
+            raise ValueError(f"Invalid weight decay: {weight_decay}")
+        if len(betas) != 2:
+            raise ValueError(f"Invalid betas: {betas}")
+        defaults = {'lr': lr, 'betas': betas, 'eps': eps, 'weight_decay': weight_decay}
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure: Optional[Callable] = None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            lr = group['lr']
+            beta1, beta2 = group['betas']
+            eps = group['eps']
+            wd = group['weight_decay']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["t"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                t = state["t"] + 1
+                m = state["m"]
+                v = state["v"]
+                g = p.grad
+                lr_t = lr * (1 - beta2 ** t) ** 0.5 / (1 - beta1 ** t)
+                p.sub_(lr * wd * p)
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                state['t'] = t
+                p.addcdiv_(m, torch.sqrt(v) + eps, value=-lr_t)
+        return loss
+
+
 def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
     if t < T_w:
         return t * alpha_max / T_w
@@ -250,6 +311,19 @@ def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
         return alpha_min + 0.5 * (1+math.cos((t - T_w)*math.pi / (T_c - T_w))) * (alpha_max - alpha_min)
     else:
         return alpha_min
+
+@torch.no_grad()
+def gradient_clipping(parameters, max_l2_norm):
+    parameters = [p for p in parameters if p.grad is not None]
+    l2_norm = 0.0
+    for p in parameters:
+        l2_norm = l2_norm + p.grad.square().sum()
+    l2_norm = l2_norm ** 0.5
+    if l2_norm > max_l2_norm:
+        clip = max_l2_norm / (l2_norm + 1e-6)
+        for p in parameters:
+            p.grad.mul_(clip)
+
 
 def data_loading(x, batch_size, context_length, device):
     # x is a 1-D token tensor already resident on `device`; gather random windows

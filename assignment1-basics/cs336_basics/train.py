@@ -82,13 +82,12 @@ def main():
 
     model = torch.compile(model, dynamic=False)  # static shapes; first-step compile excluded from budget
 
-    opt = torch.optim.AdamW(
+    opt = AdamW(
         model.parameters(),
-        lr=args.alpha_max,
-        betas=(args.beta1, args.beta2),
-        eps=args.eps,
-        weight_decay=args.weight_decay,
-        fused=True,
+        args.alpha_max,
+        (args.beta1, args.beta2),
+        args.eps,
+        args.weight_decay,
     )
 
     num_params = sum(p.numel() for p in model.parameters())
@@ -126,7 +125,7 @@ def main():
             y = model(train_input_tokens)
             loss = cross_entropy(y, train_next_tokens)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_l2_norm, foreach=True)
+        gradient_clipping(model.parameters(), args.max_l2_norm)
         opt.step()
         step += 1
 
