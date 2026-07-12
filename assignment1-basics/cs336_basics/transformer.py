@@ -129,6 +129,15 @@ def softmax(
     return res
 
 
+def attention_softmax(x, dim):
+    # Softmax with an implicit extra 0-logit "null" key (off-by-one): a query can
+    # attend to nothing, mass leaking to the sink. Stable max-subtracted form.
+    max_val = torch.amax(x, dim=dim, keepdim=True)
+    ex = torch.exp(x - max_val)
+    denom = torch.exp(-max_val) + torch.sum(ex, dim=dim, keepdim=True)
+    return ex / denom
+
+
 def scaled_dot_product_attention(Q, K, V, mask):
     QK = einsum(
         Q, K,
@@ -138,7 +147,7 @@ def scaled_dot_product_attention(Q, K, V, mask):
     norm_QK = QK / sqrt_d_k
     if mask is not None:
         norm_QK = norm_QK + torch.where(mask, 0.0, -torch.inf)
-    scaled_QK = softmax(norm_QK, -1)
+    scaled_QK = attention_softmax(norm_QK, -1)
     attn = einsum(
         scaled_QK, V,
         "... seq_len_q seq_len_k, ... seq_len_k d_v -> ... seq_len_q d_v"
