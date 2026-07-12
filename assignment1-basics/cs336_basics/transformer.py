@@ -269,6 +269,57 @@ def cross_entropy(o, x):
     nll = torch.log(torch.sum(torch.exp(o), keepdim=True, dim = -1)) - torch.gather(o, dim=-1, index=x)
     return torch.mean(nll)
 
+def zeropower_via_newtonschulz5(G, steps=5):
+    # Approximate orthogonalization of a 2D matrix via a quintic Newton-Schulz iteration
+    # (Keller Jordan's Muon). Drives all singular values toward 1. Runs in bf16.
+    a, b, c = 3.4445, -4.7750, 2.0315
+    X = G.bfloat16()
+    transposed = X.shape[0] > X.shape[1]
+    if transposed:
+        X = X.T
+    X = X / (X.norm() + 1e-7)
+    for _ in range(steps):
+        A = X @ X.T
+        B = b * A + c * (A @ A)
+        X = a * X + B @ X
+    if transposed:
+        X = X.T
+    return X
+
+
+class Muon(torch.optim.Optimizer):
+    # Momentum orthogonalized by Newton-Schulz, for 2D hidden weight matrices.
+    def __init__(self, params, lr, momentum=0.95, weight_decay=0.0, ns_steps=5):
+        defaults = {'lr': lr, 'momentum': momentum, 'weight_decay': weight_decay, 'ns_steps': ns_steps}
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            lr = group['lr']
+            momentum = group['momentum']
+            wd = group['weight_decay']
+            ns_steps = group['ns_steps']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state['m'] = torch.zeros_like(p)
+                buf = state['m']
+                buf.mul_(momentum).add_(g)          # heavy-ball momentum
+                update = g.add(buf, alpha=momentum)  # Nesterov
+                update = zeropower_via_newtonschulz5(update, ns_steps)
+                # scale so update RMS is ~shape-invariant (Keller Jordan)
+                scale = max(1.0, p.shape[0] / p.shape[1]) ** 0.5
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update.to(p.dtype), alpha=-lr * scale)
+        return loss
+
+
 class AdamW(torch.optim.Optimizer):
     def __init__(self, params, lr, betas, eps, weight_decay):
         if lr < 0:

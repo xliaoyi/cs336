@@ -31,7 +31,8 @@ parser.add_argument("--beta2", type=float, default=0.95, help="AdamW beta2.")
 parser.add_argument("--eps", type=float, default=1e-8, help="AdamW epsilon.")
 parser.add_argument("--weight_decay", type=float, default=0.2, help="Weight decay coefficient.")
 parser.add_argument("--max_l2_norm", type=float, default=1.0, help="Gradient clipping L2 norm.")
-parser.add_argument("--alpha_max", type=float, default=3e-3, help="Peak learning rate.")
+parser.add_argument("--alpha_max", type=float, default=3e-3, help="Peak AdamW learning rate (embedding + norms).")
+parser.add_argument("--muon_lr", type=float, default=0.02, help="Peak Muon learning rate (2D hidden weights).")
 parser.add_argument("--alpha_min", type=float, default=3e-5, help="Minimum learning rate.")
 parser.add_argument("--T_w", type=int, default=2000, help="Warmup steps.")
 parser.add_argument("--T_c", type=int, default=100000, help="Cosine decay steps.")
@@ -83,15 +84,20 @@ def main():
         args.theta,
     ).to(args.device)
 
+    # Optimizer split: 2D hidden weight matrices -> Muon; embedding (tied) + 1D norm
+    # gains -> AdamW. Built from the uncompiled model for clean parameter identity.
+    emb_param = model.emb.e
+    muon_params, adam_params = [], []
+    for p in model.parameters():
+        if p is emb_param or p.dim() < 2:
+            adam_params.append(p)
+        else:
+            muon_params.append(p)
+
     model = torch.compile(model, dynamic=False)  # static shapes; first-step compile excluded from budget
 
-    opt = AdamW(
-        model.parameters(),
-        args.alpha_max,
-        (args.beta1, args.beta2),
-        args.eps,
-        args.weight_decay,
-    )
+    opt_adam = AdamW(adam_params, args.alpha_max, (args.beta1, args.beta2), args.eps, args.weight_decay)
+    opt_muon = Muon(muon_params, args.muon_lr, momentum=0.95, weight_decay=args.weight_decay)
 
     num_params = sum(p.numel() for p in model.parameters())
     num_emb_params = model.emb.e.numel()
@@ -114,26 +120,30 @@ def main():
     T_c_sec = args.train_seconds
 
     while True:
-        # Set scheduled learning rate from elapsed training seconds
+        # Shared cosine schedule multiplier (elapsed seconds); scale each optimizer's peak LR.
         elapsed_sched = 0.0 if clock_start is None else time.perf_counter() - clock_start
-        lr = learning_rate_schedule(
-            elapsed_sched, args.alpha_max, args.alpha_min, T_w_sec, T_c_sec
+        lr_frac = learning_rate_schedule(
+            elapsed_sched, 1.0, args.alpha_min / args.alpha_max, T_w_sec, T_c_sec
         )
-        for group in opt.param_groups:
-            group['lr'] = lr
+        for group in opt_adam.param_groups:
+            group['lr'] = lr_frac * args.alpha_max
+        for group in opt_muon.param_groups:
+            group['lr'] = lr_frac * args.muon_lr
 
         # Sample training batch
         train_input_tokens, train_next_tokens = data_loading(
             train_data, args.batch_size, CONTEXT_LENGTH, args.device
         )
 
-        opt.zero_grad()
+        opt_adam.zero_grad()
+        opt_muon.zero_grad()
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             y = model(train_input_tokens)
             loss = cross_entropy(y, train_next_tokens)
         loss.backward()
         gradient_clipping(model.parameters(), args.max_l2_norm)
-        opt.step()
+        opt_muon.step()
+        opt_adam.step()
         step += 1
 
         if clock_start is None:
