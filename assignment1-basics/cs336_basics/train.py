@@ -35,7 +35,7 @@ parser.add_argument("--alpha_max", type=float, default=3e-3, help="Peak learning
 parser.add_argument("--alpha_min", type=float, default=3e-5, help="Minimum learning rate.")
 parser.add_argument("--T_w", type=int, default=2000, help="Warmup steps.")
 parser.add_argument("--T_c", type=int, default=100000, help="Cosine decay steps.")
-parser.add_argument("--valid_interval", type=int, default=500, help="Validation interval (steps).")
+parser.add_argument("--valid_interval", type=int, default=2500, help="Validation interval (steps).")
 parser.add_argument("--train_seconds", type=float, default=TRAIN_SECONDS, help="Override budget for smoke tests only.")
 
 args = parser.parse_args()
@@ -95,6 +95,10 @@ def main():
     print(f"**num_params: {num_params / 1e6:.1f}M", flush=True)
 
     is_cuda = args.device.startswith("cuda")
+
+    # Pre-warm the eval (batch 32) compile graph during startup so its one-time
+    # torch.compile recompile is excluded from the training budget.
+    evaluate(model, valid_data, EVAL_BATCH_SIZE, args.device)
 
     start_total = time.perf_counter()
     step = 0

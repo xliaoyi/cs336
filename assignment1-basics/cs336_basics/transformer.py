@@ -321,15 +321,13 @@ def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
 
 @torch.no_grad()
 def gradient_clipping(parameters, max_l2_norm):
-    parameters = [p for p in parameters if p.grad is not None]
-    l2_norm = 0.0
-    for p in parameters:
-        l2_norm = l2_norm + p.grad.square().sum()
-    l2_norm = l2_norm ** 0.5
-    if l2_norm > max_l2_norm:
-        clip = max_l2_norm / (l2_norm + 1e-6)
-        for p in parameters:
-            p.grad.mul_(clip)
+    # Branchless, multi-tensor clip: no python `if` on a GPU scalar (avoids a per-step
+    # host<->device sync) and batched kernels via torch._foreach_*. Math-identical:
+    # clip=1 is a no-op when the norm is under the threshold.
+    grads = [p.grad for p in parameters if p.grad is not None]
+    total = torch.linalg.vector_norm(torch.stack(torch._foreach_norm(grads)))
+    clip = torch.clamp(max_l2_norm / (total + 1e-6), max=1.0)
+    torch._foreach_mul_(grads, clip)
 
 
 def data_loading(x, batch_size, context_length, device):
