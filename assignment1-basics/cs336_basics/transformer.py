@@ -162,13 +162,15 @@ class MultiHeadSelfAttention(nn.Module):
         self.k_norm = RMSNorm(self.d_k)
         # Value-residual: learnable gate mixing this layer's V toward layer-0's V (unused in layer 0)
         self.value_lambda = nn.Parameter(torch.zeros(1))
+        # Value-embedding: learnable gate injecting a token-dependent value embedding into V
+        self.ve_lambda = nn.Parameter(torch.zeros(1))
         # self.token_positions = token_positions
         if max_seq_len is not None and theta is not None:
             self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len)
         else:
             self.rope = None
 
-    def forward(self, x, token_positions=None, v0=None):
+    def forward(self, x, token_positions=None, v0=None, ve=None):
         Q = self.WQ(x)
         K = self.WK(x)
         V = self.WV(x)
@@ -193,6 +195,13 @@ class MultiHeadSelfAttention(nn.Module):
         if v0 is not None:
             mix = torch.sigmoid(self.value_lambda)
             V = V + mix * (v0 - V)
+        # Value-embedding: add a gated token-dependent value embedding (split into heads)
+        if ve is not None:
+            ve_heads = rearrange(
+                ve, "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k",
+                num_heads = self.num_heads
+            )
+            V = V + (torch.sigmoid(self.ve_lambda) * ve_heads).to(V.dtype)
 
         # QK-norm (per-head, over d_k) before RoPE
         Q = self.q_norm(Q)
@@ -225,10 +234,10 @@ class TransformerBlock(nn.Module):
         self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, theta)
         self.ffn = FFN(d_model, d_ff)
 
-    def forward(self, x, v0=None):
+    def forward(self, x, v0=None, ve=None):
         y = self.rmsnorm1(x)
         token_positions = torch.arange(x.shape[-2], device = x.device)
-        y, v_out = self.attn(y, token_positions, v0)
+        y, v_out = self.attn(y, token_positions, v0, ve)
 
         # residual connection
         y = y + x
@@ -252,6 +261,7 @@ class TransformerLM(nn.Module):
         self.context_length = context_length
         self.num_layers = num_layers
         self.emb = Embedding(vocab_size, d_model)
+        self.value_emb = Embedding(vocab_size, d_model)  # token-dependent value embeddings
         self.layers = nn.ModuleList(
             [TransformerBlock(d_model, num_heads, d_ff, context_length, theta) for _ in range(num_layers)]
         )
@@ -261,10 +271,11 @@ class TransformerLM(nn.Module):
         self.linear.W = self.emb.e
 
     def forward(self, x):
+        ve = self.value_emb(x)  # ... seq_length d_model (token-dependent value embedding)
         x = self.emb(x) # ... seq_length d_model
         v0 = None
         for i, layer in enumerate(self.layers):
-            x, v = layer(x, v0)
+            x, v = layer(x, v0, ve)
             if i == 0:
                 v0 = v  # seed value-residual with layer-0's V for all deeper layers
 

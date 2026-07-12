@@ -86,10 +86,10 @@ def main():
 
     # Optimizer split: 2D hidden weight matrices -> Muon; embedding (tied) + 1D norm
     # gains -> AdamW. Built from the uncompiled model for clean parameter identity.
-    emb_param = model.emb.e
+    emb_params = (model.emb.e, model.value_emb.e)
     muon_params, adam_params = [], []
     for p in model.parameters():
-        if p is emb_param or p.dim() < 2:
+        if any(p is e for e in emb_params) or p.dim() < 2:
             adam_params.append(p)
         else:
             muon_params.append(p)
