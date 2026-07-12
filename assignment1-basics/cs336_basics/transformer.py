@@ -425,7 +425,7 @@ def learning_rate_schedule(t, alpha_max, alpha_min, T_w, T_c):
     if t < T_w:
         return t * alpha_max / T_w
     elif t >= T_w and t <= T_c:
-        return alpha_min + 0.5 * (1+math.cos((t - T_w)*math.pi / (T_c - T_w))) * (alpha_max - alpha_min)
+        return alpha_max - (t - T_w) / (T_c - T_w) * (alpha_max - alpha_min)  # E126: linear decay
     else:
         return alpha_min
 
