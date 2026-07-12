@@ -279,6 +279,8 @@ class TransformerLM(nn.Module):
         self.linear.W = self.emb.e
         # Learnable input-embedding scale (decouples input-residual magnitude from the tied logit scale)
         self.emb_scale = nn.Parameter(torch.ones(1))
+        # Learnable output-logit scale (decouples logit sharpness from the tied table magnitude)
+        self.out_scale = nn.Parameter(torch.ones(1))
 
     def forward(self, x):
         ve = self.value_emb(x)  # ... seq_length d_model (token-dependent value embedding)
@@ -290,7 +292,7 @@ class TransformerLM(nn.Module):
                 v0 = v  # seed value-residual with layer-0's V for all deeper layers
 
         x = self.rmsnorm3(x)
-        x = self.linear(x) # ... seq_length vocab_size
+        x = self.linear(x) * self.out_scale # ... seq_length vocab_size
         x = 15.0 * torch.tanh(x / 15.0)  # logit soft-cap (bounds logit magnitude)
         return x
 
