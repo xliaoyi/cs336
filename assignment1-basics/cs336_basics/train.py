@@ -29,7 +29,7 @@ parser.add_argument("--theta", type=float, default=10000.0, help="RoPE base freq
 parser.add_argument("--beta1", type=float, default=0.9, help="AdamW beta1.")
 parser.add_argument("--beta2", type=float, default=0.99, help="AdamW beta2.")
 parser.add_argument("--eps", type=float, default=1e-8, help="AdamW epsilon.")
-parser.add_argument("--weight_decay", type=float, default=0.2, help="Weight decay coefficient.")
+parser.add_argument("--weight_decay", type=float, default=0.1, help="Weight decay coefficient.")
 parser.add_argument("--max_l2_norm", type=float, default=2.0, help="Gradient clipping L2 norm.")
 parser.add_argument("--alpha_max", type=float, default=3e-3, help="Peak AdamW learning rate (embedding + norms).")
 parser.add_argument("--muon_lr", type=float, default=0.0125, help="Peak Muon learning rate (2D hidden weights).")
