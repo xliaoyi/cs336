@@ -157,6 +157,9 @@ class MultiHeadSelfAttention(nn.Module):
         self.WK = Linear(d_model, d_model)
         self.WV = Linear(d_model, d_model)
         self.WO = Linear(d_model, d_model)
+        # QK-norm: RMSNorm on per-head Q,K (decouples attention-logit scale from residual scale)
+        self.q_norm = RMSNorm(self.d_k)
+        self.k_norm = RMSNorm(self.d_k)
         # self.token_positions = token_positions
         if max_seq_len is not None and theta is not None:
             self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len)
@@ -181,6 +184,10 @@ class MultiHeadSelfAttention(nn.Module):
             V, "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k",
             num_heads = self.num_heads
         )
+
+        # QK-norm (per-head, over d_k) before RoPE
+        Q = self.q_norm(Q)
+        K = self.k_norm(K)
 
         # RoPE
         if self.rope:
