@@ -164,6 +164,9 @@ class MultiHeadSelfAttention(nn.Module):
         self.value_lambda = nn.Parameter(torch.zeros(1))
         # Value-embedding: learnable gate injecting a token-dependent value embedding into V
         self.ve_lambda = nn.Parameter(torch.zeros(1))
+        # Gated attention output: cheap per-head sigmoid gate on the attention readout (Qwen-style)
+        self.gate_proj = Linear(d_model, num_heads)
+        self.gate_bias = nn.Parameter(torch.full((num_heads,), 5.0))  # init ~0.99 (near behavior-preserving)
         # self.token_positions = token_positions
         if max_seq_len is not None and theta is not None:
             self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len)
@@ -217,6 +220,11 @@ class MultiHeadSelfAttention(nn.Module):
         mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device))
 
         attn = scaled_dot_product_attention(Q, K, V, mask) # ... num_heads seq_len d_k
+
+        # Gated attention: per-head sigmoid gate on the readout (lets a head down-weight per token)
+        gate = torch.sigmoid(self.gate_proj(x) + self.gate_bias)  # ... seq_len num_heads
+        gate = rearrange(gate, "... seq_len num_heads -> ... num_heads seq_len 1")
+        attn = attn * gate
 
         # concat heads
         multi_attn = rearrange(attn, "... num_heads seq_len d_k -> ... seq_len (num_heads d_k)")
