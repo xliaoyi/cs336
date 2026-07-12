@@ -18,7 +18,7 @@ PEAK_FLOPS = 756e12     # H100 PCIe BF16 dense, for MFU reporting only
 parser = argparse.ArgumentParser(description="Train a Transformer language model.")
 parser.add_argument("--train_path", type=str, default="owt_train.npy", help="Path to the training dataset (.npy).")
 parser.add_argument("--valid_path", type=str, default="owt_valid.npy", help="Path to the validation dataset (.npy).")
-parser.add_argument("--batch_size", type=int, default=64, help="Training batch size.")
+parser.add_argument("--batch_size", type=int, default=96, help="Training batch size.")
 parser.add_argument("--device", type=str, default="cuda", help="Device to train on (cuda/cpu/mps).")
 parser.add_argument("--vocab_size", type=int, default=32000, help="Vocabulary size.")
 parser.add_argument("--num_layers", type=int, default=8, help="Number of Transformer layers.")
