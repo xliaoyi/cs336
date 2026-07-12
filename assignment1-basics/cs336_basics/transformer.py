@@ -160,13 +160,15 @@ class MultiHeadSelfAttention(nn.Module):
         # QK-norm: RMSNorm on per-head Q,K (decouples attention-logit scale from residual scale)
         self.q_norm = RMSNorm(self.d_k)
         self.k_norm = RMSNorm(self.d_k)
+        # Value-residual: learnable gate mixing this layer's V toward layer-0's V (unused in layer 0)
+        self.value_lambda = nn.Parameter(torch.zeros(1))
         # self.token_positions = token_positions
         if max_seq_len is not None and theta is not None:
             self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len)
         else:
             self.rope = None
 
-    def forward(self, x, token_positions=None):
+    def forward(self, x, token_positions=None, v0=None):
         Q = self.WQ(x)
         K = self.WK(x)
         V = self.WV(x)
@@ -185,6 +187,13 @@ class MultiHeadSelfAttention(nn.Module):
             num_heads = self.num_heads
         )
 
+        # Value-residual: mix this layer's V toward layer-0's V (v_out is the pre-mix V,
+        # returned so layer 0 can seed the residual for all deeper layers).
+        v_out = V
+        if v0 is not None:
+            mix = torch.sigmoid(self.value_lambda)
+            V = V + mix * (v0 - V)
+
         # QK-norm (per-head, over d_k) before RoPE
         Q = self.q_norm(Q)
         K = self.k_norm(K)
@@ -202,7 +211,7 @@ class MultiHeadSelfAttention(nn.Module):
 
         # concat heads
         multi_attn = rearrange(attn, "... num_heads seq_len d_k -> ... seq_len (num_heads d_k)")
-        return self.WO(multi_attn)
+        return self.WO(multi_attn), v_out
 
 
 class TransformerBlock(nn.Module):
@@ -216,10 +225,10 @@ class TransformerBlock(nn.Module):
         self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, theta)
         self.ffn = FFN(d_model, d_ff)
 
-    def forward(self, x):
+    def forward(self, x, v0=None):
         y = self.rmsnorm1(x)
         token_positions = torch.arange(x.shape[-2], device = x.device)
-        y = self.attn(y, token_positions)
+        y, v_out = self.attn(y, token_positions, v0)
 
         # residual connection
         y = y + x
@@ -230,7 +239,7 @@ class TransformerBlock(nn.Module):
         # residual connection
         z = z + y
 
-        return z
+        return z, v_out
 
 
 class TransformerLM(nn.Module):
@@ -253,8 +262,11 @@ class TransformerLM(nn.Module):
 
     def forward(self, x):
         x = self.emb(x) # ... seq_length d_model
-        for layer in self.layers:
-            x = layer(x)
+        v0 = None
+        for i, layer in enumerate(self.layers):
+            x, v = layer(x, v0)
+            if i == 0:
+                v0 = v  # seed value-residual with layer-0's V for all deeper layers
 
         x = self.rmsnorm3(x)
         x = self.linear(x) # ... seq_length vocab_size
