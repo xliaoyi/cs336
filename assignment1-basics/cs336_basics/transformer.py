@@ -270,7 +270,7 @@ class TransformerLM(nn.Module):
 
         x = self.rmsnorm3(x)
         x = self.linear(x) # ... seq_length vocab_size
-        # x = softmax(x, -1) # ... seq_length vocab_size, the model must return unnormalized logits for cross-entropy
+        x = 15.0 * torch.tanh(x / 15.0)  # logit soft-cap (bounds logit magnitude)
         return x
 
 def cross_entropy(o, x):
