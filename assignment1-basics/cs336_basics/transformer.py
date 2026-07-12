@@ -289,6 +289,11 @@ class TransformerLM(nn.Module):
         self.linear = Linear(d_model, vocab_size)
         # Weight tying: share the input embedding and output projection (both [vocab, d_model]).
         self.linear.W = self.emb.e
+        # U-net-style learnable residual skips: add encoder (first-half) layer outputs into the
+        # symmetric decoder (second-half) layer inputs. Init 0 => no-op at start (safe).
+        self.skip_weights = nn.ParameterList(
+            [nn.Parameter(torch.zeros(1)) for _ in range(num_layers // 2)]
+        )
         # Learnable input-embedding scale (decouples input-residual magnitude from the tied logit scale)
         self.emb_scale = nn.Parameter(torch.ones(1))
         # Learnable output-logit scale (decouples logit sharpness from the tied table magnitude)
@@ -298,10 +303,17 @@ class TransformerLM(nn.Module):
         ve = self.value_emb(x)  # ... seq_length d_model (token-dependent value embedding)
         x = self.emb(x) * self.emb_scale # ... seq_length d_model
         v0 = None
+        half = self.num_layers // 2
+        enc_outputs = []
         for i, layer in enumerate(self.layers):
+            if i >= half:
+                k = i - half
+                x = x + self.skip_weights[k] * enc_outputs[half - 1 - k]  # U-net skip
             x, v = layer(x, v0, ve)
             if i == 0:
                 v0 = v  # seed value-residual with layer-0's V for all deeper layers
+            if i < half:
+                enc_outputs.append(x)
 
         x = self.rmsnorm3(x)
         x = self.linear(x) * self.out_scale # ... seq_length vocab_size
