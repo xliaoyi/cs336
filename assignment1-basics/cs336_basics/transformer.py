@@ -277,10 +277,12 @@ class TransformerLM(nn.Module):
         self.linear = Linear(d_model, vocab_size)
         # Weight tying: share the input embedding and output projection (both [vocab, d_model]).
         self.linear.W = self.emb.e
+        # Learnable input-embedding scale (decouples input-residual magnitude from the tied logit scale)
+        self.emb_scale = nn.Parameter(torch.ones(1))
 
     def forward(self, x):
         ve = self.value_emb(x)  # ... seq_length d_model (token-dependent value embedding)
-        x = self.emb(x) # ... seq_length d_model
+        x = self.emb(x) * self.emb_scale # ... seq_length d_model
         v0 = None
         for i, layer in enumerate(self.layers):
             x, v = layer(x, v0, ve)
