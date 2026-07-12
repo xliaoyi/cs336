@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 import argparse
 import numpy as np
@@ -22,8 +24,8 @@ parser.add_argument("--batch_size", type=int, default=96, help="Training batch s
 parser.add_argument("--device", type=str, default="cuda", help="Device to train on (cuda/cpu/mps).")
 parser.add_argument("--vocab_size", type=int, default=32000, help="Vocabulary size.")
 parser.add_argument("--num_layers", type=int, default=10, help="Number of Transformer layers.")
-parser.add_argument("--d_model", type=int, default=640, help="Transformer hidden dimension.")
-parser.add_argument("--num_heads", type=int, default=5, help="Number of attention heads.")
+parser.add_argument("--d_model", type=int, default=768, help="Transformer hidden dimension.")
+parser.add_argument("--num_heads", type=int, default=6, help="Number of attention heads.")
 parser.add_argument("--d_ff", type=int, default=1344, help="Feed-forward hidden dimension.")
 parser.add_argument("--theta", type=float, default=10000.0, help="RoPE base frequency.")
 parser.add_argument("--beta1", type=float, default=0.9, help="AdamW beta1.")
