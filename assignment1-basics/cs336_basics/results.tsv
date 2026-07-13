@@ -1,0 +1,212 @@
+commit	valid_loss	memory_gb	status	description
+32a06d9	5.281082	23.9	keep	baseline: fp32 eager, 4L d512 h32 dff1344 SwiGLU RoPE, LR3e-3 warmup2000 cosT100k, bs32; 926 steps MFU0.62% (throughput-bound, warmup never completed; COLD page-cache)
+5d08e50	5.123583	23.9	keep	E1 wall-clock LR schedule (warmup 3% of budget, cosine->alpha_min at end); warmup now completes+anneals; 1501 steps (warm cache confound)
+73ace0a	4.828588	29.0	keep	E2 GPU-resident train data + on-device gather (math-identical); 2169 steps (+44% throughput vs E1)
+ea94336	4.017811	17.0	keep	E3 flash SDPA + int d_k fix + num_heads 32->8 (d_k64) + bf16 autocast (fp32 CE/RoPE guards); 8761 steps (4x), VRAM 29->17GB
+268840b	4.000983	17.0	keep	E4 TF32 + fused AdamW + clip_grad_norm_(foreach); deleted ~60 lines custom code; 9460 steps (+8%)
+04238d7	3.925687	16.2	keep	E5 torch.compile(dynamic=False); 12290 steps (+30%), MFU 8.24%
+70d671f	3.901143	16.0	keep	E6 weight tying (share emb<->output proj); params 45.2M->28.8M; loss -0.025 (MFU number now undercounts real compute)
+2174fcf	3.893724	16.0	keep	E7 embedding init std 0.02 (was vocab-collapsed 0.008); loss -0.007 (near noise, kept as standard+free)
+eb6c020	3.855055	26.5	keep	E8 batch_size 32->64 @ LR3e-3; loss -0.039 (mostly less grad noise; tokens ~flat 209M, steps halved to 6377)
+3e8bb4b	3.867072	47.4	discard	E9 batch_size 64->128 @ LR3e-3; WORSE +0.012 (only 3249 steps; LR too low for this batch) -> reset to E8
+7b1870e	3.879367	26.5	discard	E10 alpha_max 3e-3->5e-3 @ batch64; WORSE +0.024 (no divergence; 3e-3 already near-optimal) -> reset to E8
+3abb73f	3.865372	26.5	discard	E11 residual-scaled init 1/sqrt(2L) @ 4L; WORSE +0.010 (pre-norm already renorms; over-shrinks sublayers) -> reset to E8
+ef8dd86	3.828083	27.7	keep	E12 num_layers 4->6 @ d512; loss -0.027 despite 9% fewer tokens (190M); depth beats width. params 35.1M
+46ba797	3.815321	29.0	keep	E13 num_layers 6->8 @ d512; loss -0.013 (diminishing; 174M tokens). params 41.3M
+6a4c0c8	3.838121	29.5	discard	E14 deeper-narrower d384/12L/dff1024/6h; WORSE +0.023 vs d512/8L (width matters; narrowing hurt) -> reset to E13
+bag9u4a	3.846122	30.0	discard	E15 num_layers 8->10 @ d512; WORSE +0.031 (only 160M tokens); 8L is depth sweet spot. [NOTE: E3-E15 used forbidden torch APIs]
+c2777d4	3.861917	32.8	keep	E16 COMPLIANCE FIX: hand-written attention+softmax, custom AdamW(Optimizer base), custom clip; keep bf16/compile/TF32/tying. +0.047 vs non-compliant E13 (9% fewer tokens 154.7M). NEW COMPLIANT REFERENCE.
+73583f4	3.918282	32.8	discard	E17 selective weight decay (no-WD on 1D + tied emb); WORSE +0.056 (WD on tied embedding is beneficial - regularizes logit scale) -> reset to E16
+f748f52	3.821486	33.3	keep	E18 QK-norm (RMSNorm on per-head Q,K before RoPE); loss -0.040; nearly erases compliance cost. new compliant best
+2069c20	3.825110	33.3	keep	E19 throughput reclaim: branchless _foreach clip (no per-step sync) + eval prewarm + valid_interval 2500; +5.6M tokens (156.3M), loss +0.0036 (within noise; kept for throughput+simplicity)
+458234f	3.807136	33.3	keep	E20 seed RNG (manual_seed 0) for clean A/B; same code as E19 but seed-0 draw = 3.807 (vs 3.825) => unseeded noise ~0.018. SEEDED REFERENCE. (repro re-run 3.805 => seeded noise ~0.002)
+3ad5986	3.825521	33.3	discard	E21 alpha_max 3e-3->4e-3; WORSE +0.018 (3e-3 near-optimal even with QK-norm) -> reset to E20
+33b38c8	3.802278	33.3	keep	E22 weight_decay 0.1->0.2; loss -0.0049 (regularization helps; consistent w/ E17). new best
+a7244ba	3.809934	33.3	discard	E23 weight_decay 0.2->0.3; WORSE +0.008 (WD optimum is 0.2) -> reset to E22
+2808e8c	3.803860	38.0	discard	E24 d_ff 1344->2048; +0.0016 (within noise) but fewer tokens (149.5M) + 8M params; FFN capacity not the bottleneck -> reset to E22
+5a7c28e	3.742895	33.2	keep	E25 MUON optimizer (Newton-Schulz orthogonalized momentum) for 2D hidden weights, AdamW for emb+norms, muon_lr 0.02; loss -0.059 despite 8% fewer tokens! biggest win since throughput. new best, beats non-compliant E13
+25b51ac	3.773072	33.2	discard	E26 muon_lr 0.02->0.03; WORSE +0.030 (Muon LR optimum <=0.02) -> reset to E25
+3616a1e	3.727298	33.2	keep	E27 muon_lr 0.02->0.015; loss -0.0156 (sweep monotonic down). new best
+fceb819	3.717512	33.2	keep	E28 muon_lr 0.015->0.01; loss -0.0098 (diminishing). new best
+e8f05f8	3.715659	33.2	keep	E29 muon_lr 0.01->0.0075; loss -0.0018 (LR sweep bottomed out ~0.0075-0.01). new best
+a3e8025	3.714509	34.0	discard	E30 num_layers 8->10 w/ Muon; -0.0012 (within noise) but fewer tokens (128.5M) + params; Muon lifts 10L to ~=8L but not better; 8L still sweet spot -> reset to E29
+875a850	3.725067	33.2	discard	E31 Muon ns_steps 5->3; WORSE +0.0094 (more tokens 149M but worse orthogonalization); 5 NS steps needed -> reset to E29
+d06b667	0.000000	0.0	crash	E32 batch 64->128 w/ Muon; CUDA OOM (materialized [B,H,S,S] attention scores too big at batch 128) -> reset to E29
+a80debc	3.702812	47.0	keep	E33 batch 64->96 with Muon; loss -0.0129 + more tokens (152M); Muon likes bigger batch (NS amortized + orthogonalized-update robustness). new best
+7286d51	3.706993	53.9	discard	E34 batch 96->112 w/ Muon; WORSE +0.0042 (tokens plateau, fewer steps); batch 96 is Muon sweet spot -> reset to E33
+8368658	3.705855	47.0	discard	E35 AdamW/embedding LR 3e-3->6e-3; WORSE +0.003 (3e-3 fine for embedding) -> reset to E33
+f04e395	3.709809	47.0	discard	E36 alpha_min 3e-5->0; WORSE +0.007 (tiny LR floor helps tail; full anneal-to-0 hurt) -> reset to E33
+fe70261	3.705144	47.0	discard	E37 Muon momentum warmup 0.85->0.95; WORSE +0.0023 (fixed 0.95 fine) -> reset to E33
+d71df64	3.685248	47.3	keep	E38 value-residual (mix layer-0 V into deeper layers, per-block sigmoid gate); loss -0.0176 (speedrun trick, stacks on Muon+QK-norm). new best
+f19aa6e	3.694326	47.3	discard	E39 RoPE theta 1e4->1e3; WORSE +0.009 (1e4 better) -> reset to E38
+c4b4256	3.680388	50.8	keep	E40 num_layers 8->10 WITH value-residual; loss -0.0049 (value-residual unlocks depth: 10L was flat under Muon alone in E30). new best
+0e77057	3.682684	54.4	discard	E41 num_layers 10->12; WORSE +0.0023 (122M tokens; 10L is sweet spot with value-residual) -> reset to E40
+6ceae2b	3.679690	50.8	keep	E42 grad clip 1.0->2.0; -0.0007 (within noise; looser clip aligns w/ Muon). marginal best
+6f00e29	3.676156	50.8	keep	E43 tanh logit soft-cap C=15; loss -0.0035 (bounds logit magnitude). new best
+603bcdb	3.666876	50.8	keep	E44 embedding AdamW beta2 0.95->0.98; loss -0.0093 (sparse embedding grads want longer 2nd-moment horizon). new best
+28ea5eb	3.666194	50.8	keep	E45 beta2 0.98->0.99; -0.0007 (within noise; beta2 saturated ~0.98-0.99). marginal best
+0b4d6c6	3.658014	50.8	keep	E46 re-check muon_lr 0.0075->0.01 at new config; loss -0.0082 (optimum shifted UP with batch 96 vs the batch-64 it was tuned at). new best
+ae23e31	3.651750	50.8	keep	E47 muon_lr 0.01->0.0125; loss -0.0063 (still climbing). new best
+ed4b306	3.653210	50.8	discard	E48 muon_lr 0.0125->0.015; +0.0015 (within noise; peak at 0.0125) -> reset to E47
+4e3c689	3.651339	50.8	keep	E49 re-check WD 0.2->0.1; -0.0004 (within noise; WD now flat region 0.1~0.2). marginal best
+799df06	3.655533	50.8	discard	E50 warmup 3%->1.5%; WORSE +0.0042 (3% better) -> reset to E49
+811457c	3.645606	53.9	keep	E51 value embeddings (learned token->value table, gated per-layer into V, all 10 layers); loss -0.0057 despite ~14% fewer tokens (129.6M). new best
+e219cd4	3.646848	53.9	discard	E52 value-emb inject first-3-layers only; +0.0012 within noise, SAME tokens (cost is intrinsic to the table, not injection count) -> reset to E51
+a4da1ea	3.662020	53.0	discard	E53 ReLU^2 FFN (drop W3) vs SwiGLU; WORSE +0.0164 (more tokens 136M but SwiGLU gating worth the extra matmul) -> reset to E51
+d53c505	0.000000	0.0	crash	E54 num_heads 8->16 (d_k 32); CUDA OOM (16 heads doubles materialized [B,H,S,S] scores; won't fit at batch96+value-emb) -> reset to E51
+5ff50be	3.661901	53.9	discard	E55 learnable per-head attention temperature (no-op init); WORSE +0.0163 (QK-norm+fixed 1/sqrt(dk) already calibrated; extra DOF destabilizes) -> reset to E51
+60c49d4	3.643206	54.0	keep	E56 gated attention output (per-head sigmoid gate on readout, Qwen-style); loss -0.0024 (just above noise). new best
+c11b1b7	3.646419	54.0	discard	E57 fp32 Newton-Schulz; WORSE +0.0032 (bf16 NS quality sufficient + fp32 slower/fewer tokens); bf16 NS wins. skip Polar-Express -> reset to E56
+22b7be9	3.639871	54.0	keep	E58 learnable input-embedding scale (init 1.0); loss -0.0033 (decouple input-residual magnitude from tied logit scale). new best
+1893f67	3.632491	54.0	keep	E59 learnable output-logit scale (init 1.0); loss -0.0074 (decouple logit sharpness from tied table). new best. scale-decoupling productive
+c2b18fd	3.622584	54.0	keep	E60 per-layer learnable residual scales on attn/ffn (LayerScale, init 1.0); loss -0.0099. new best. learnable-scale theme ~-0.02 cumulative (E58+E59+E60)
+9dd09dd	3.653067	54.0	discard	E61 RMS-matched Muon scaling (0.2*max^0.5) + muon_lr 0.0028; WORSE +0.030 (current max(1,rows/cols)^0.5 well-tuned; W2-correction or LR-comp hurt) -> reset to E60
+3133196	3.617782	54.0	keep	E62 softmax-off-by-one in attention (implicit null key); loss -0.0048 (attention sink helps). new best
+5cc8932	3.613989	54.0	keep	E63 re-check muon_lr 0.0125->0.015; loss -0.0038 (optimum shifted up at final config w/ more stabilizers). new best
+3031255	3.609459	54.0	keep	E64 muon_lr 0.015->0.02; loss -0.0045 (still climbing). new best
+a85ee7b	3.613671	54.0	discard	E65 muon_lr 0.02->0.025; +0.0042 (peak at 0.02) -> reset to E64
+b2b36ca	3.622424	56.3	discard	E66 re-check num_layers 10->12 at final config; WORSE +0.013 (113M tokens; 10L still sweet spot) -> reset to E64
+7227ce1	3.618313	60.2	discard	E67 re-check batch 96->112 (+expandable_segments to fit); WORSE +0.0088 (~same tokens, fewer steps); batch 96 still optimal -> reset to E64
+f03b57f	3.616352	54.0	discard	E68 semi-orthogonal (QR) init for 2D matrices; WORSE +0.0069 (trunc_normal spread better; init fades in 2600 steps) -> reset to E64
+a3c5257	3.605624	54.0	keep	E69 re-check alpha_max (embedding LR) 3e-3->5e-3; loss -0.0038 (optimum rose with muon_lr). new best
+73240f8	3.601539	54.0	keep	E70 alpha_max 5e-3->7e-3; loss -0.0041 (still climbing). new best
+d67d350	3.600180	54.0	keep	E71 alpha_max 7e-3->1e-2; loss -0.0014 (flattening; within noise). marginal best
+763ac48	3.595514	54.0	keep	E72 alpha_max 1e-2->1.5e-2; loss -0.0047 (still climbing; embedding was badly undertrained). new best
+0e168b2	3.591515	54.0	keep	E73 alpha_max 1.5e-2->2e-2; loss -0.004 (still climbing). new best
+d502ed9	3.595890	54.0	discard	E74 alpha_max 2e-2->3e-2; +0.0044 (peak at 2e-2; embedding-LR re-tune netted ~-0.018) -> reset to E73
+5de6034	3.592294	54.0	discard	E75 beta2 0.99->0.995; +0.0008 (within noise; beta2 stays 0.99) -> reset to E73
+fa05ab3	3.591624	54.0	discard	E76 muon_lr 0.02->0.025 recheck; +0.0001 (within noise; 0.02 stays) -> reset to E73
+be975ce	3.605509	54.0	discard	E77 split AdamW: embeddings 2e-2 / scalars 3e-3; WORSE +0.014 (scalars ALSO want high LR; shared 2e-2 right) -> reset to E73
+6fe0e81	3.596007	54.0	discard	E78 WD 0.1->0.05; WORSE +0.0045 (WD 0.1 stays optimal even at higher LR) -> reset to E73
+2530319	3.599401	54.0	discard	E79 warmup 3%->5%; WORSE +0.008 (both directions lose; 3% is sweet spot) -> reset to E73
+f534718	3.600225	54.2	discard	E80 identity-init readout adapter (d x d before tied output); WORSE +0.0087 (tied-table not the bottleneck; extra output DOF disrupts) -> reset to E73
+[EMA]	-	-	skip	E81a EMA weight-avg for final eval: SKIPPED after smoke (init-contamination bug + EMA lags a cosine-to-alpha_min trajectory -> ill-suited)
+cead763	3.596990	54.0	discard	E81 decoupled Muon warmup (Muon T_w=0); WORSE +0.0055 (Muon benefits from shared 3% warmup) -> reset to E73
+71e76f3	3.638987	54.0	discard	E82 train-only z-loss (coef 1e-4); WORSE +0.047 (redundant+harmful over the soft-cap which already bounds logits) -> reset to E73
+1a1b258	3.602496	54.0	discard	E83 soft-cap C 15->30; WORSE +0.011 (C=15 better) -> reset to E73
+47843ef	3.581540	57.5	keep	E84 WIDER d_model 512->640 (10h d_k64, d_ff1680); loss -0.010 despite fewer tokens (110M) + 2x params; width IS a lever (Muon+value-pathway train the bigger model efficiently). new best
+f144337	3.584700	62.5	discard	E85 wider d640->768; WORSE +0.0032 (97.6M tokens; width overshoots, d640 is sweet spot) -> reset to E84
+ef66ec0	3.590111	50.0	discard	E86 depth 10->8 at d640; WORSE +0.0086 (more tokens 123M but depth-10 capacity wins); 10L stays. model is CAPACITY-limited -> reset to E84
+2359a82	3.589521	62.0	discard	E87 wider d_ff 1680->2048 at d640; WORSE +0.008 (FFN capacity sufficient; bottleneck was d_model width not FFN) -> reset to E84
+e1ee789	3.582276	57.5	discard	E88 muon_lr 0.02->0.025 at d640; +0.0007 within noise (Muon scale-invariant; 0.02 stays) -> reset to E84
+0b47acc	3.582879	57.5	discard	E89 alpha_max 2e-2->3e-2 at d640; +0.0013 within noise (2e-2 stays; LRs width-invariant) -> reset to E84. capacity-optimal shape = d640/10L/dff1680, BEST 3.582
+d15c513	3.597951	52.0	discard	E90 batch 96->64 at d640; WORSE +0.016 (fewer steps worse; batch 96 stays) -> reset to E84
+aefadff	3.606788	59.1	discard	E91 untie output head (separate lm_head) at d640; WORSE +0.025 (tying regularization + shared-table efficiency beat added output capacity) -> reset to E84
+f8b413a	3.618042	57.5	discard	E92 WSD schedule (warmup->hold->linear cooldown, 0.4); WORSE +0.036 (cosine smooth full-anneal better for short run) -> reset to E84
+827d80b	3.573647	50.0	keep	E93 num_heads 10->8 at d640 (d_k 64->80, bigger heads); loss -0.008; model prefers fewer/bigger heads. new best
+a8fc5d8	3.572945	48.0	keep	E94 num_heads 8->5 at d640 (d_k 80->128); -0.0007 within noise (head-dim flat 80-128); 5 heads = least score-mem. marginal best
+a8dff9a	3.643089	48.0	discard	E95 cautious optim (C-AdamW + C-Muon); WORSE +0.070 (masking Muon orthogonalized update destroys its geometry) -> reset to E94
+239cc04	3.627351	48.0	discard	E96 cautious AdamW only; WORSE +0.054 (cautious masking bad here even on embeddings; interacts w/ aggressive emb LR) -> reset to E94. cautious fully rejected
+4624708	3.627335	48.0	discard	E97 talking-heads ([H,H] head-mix, identity init); WORSE +0.054 (added DOF near attention hurts, like readout-adapter/attn-temp) -> reset to E94
+2c31517	3.573473	48.0	discard	E98 mid-layer value-residual (2nd source at L//2, no-op init); +0.0005 within noise (layer-0 VR already captures it) -> reset to E94
+225648b	3.601532	48.0	discard	E99 multi-token prediction (t+2 aux, train-only, lambda 0.1); WORSE +0.029 (aux distracts trunk + token cost) -> reset to E94
+5fa626a	3.570135	48.0	keep	E100 narrower d_ff 1680->1344 at d640; loss -0.0028 + more tokens (121M); FFN was over-provisioned, tokens help capacity-limited d_model. new best
+853c565	3.581051	48.0	discard	E101 d_ff 1344->1024 at d640; WORSE +0.011 (too narrow; lost FFN capacity > extra tokens); d_ff 1344 sweet spot -> reset to E100
+4c181b1	3.567212	60.0	keep	E102 d_model 640->768 (6h d_k128) WITH efficient d_ff 1344; loss -0.0029 (110M tokens); narrow-FFN freed tokens so width peak shifted up d640->d768. new best
+5566eab	3.573545	57.8	discard	E103 d_model 768->896 (7h) d_ff1344; WORSE +0.006 (99.5M tokens; width overshoots); d768 is width peak w/ efficient FFN -> reset to E102
+db94c1c	3.567081	52.0	keep	E104 num_layers 10->8 at d768; +0.0001 within noise but +tokens(123M) + fewer params (wider model is token-hungry, 8L~=10L now); keep 8L (cheaper, best-observed). new best
+d7b08ff	3.573468	53.0	discard	E105 d_model 768->896 (7h) at 8L; WORSE +0.006 (111M tokens); width peak firmly d768 -> reset to E104
+0ba272d	3.559411	54.0	keep	E106 d_ff 1344->1536 at d768/8L; WIN -0.0077 (FFN optimum shifted up w/ wider d_model + fewer layers; ~2x d_model). new best 3.559411
+f22d546	3.563937	54.0	discard	E107 d_ff 1536->1728 at d768/8L; WORSE +0.0045 (too wide); d_ff 1536 is sweet spot -> reset to E106
+6dc78ee	3.561239	63.0	discard	E108 num_layers 8->10 at d768/d_ff1536; WORSE +0.0018 (109M tokens; depth costs tokens); 8L is depth sweet spot w/ wide FFN -> reset to E106
+24dd0cc	3.572420	50.0	discard	E109 num_layers 8->6 at d768/d_ff1536; WORSE +0.013 (138M tokens but too shallow); 8L firmly depth peak -> reset to E106
+c1093a2	3.576748	53.0	discard	E110 num_heads 6->4 (d_k 192) at d768/8L; WORSE +0.017 (too few heads); d_k 128 (6h) is head peak -> reset to E106
+21bb567	3.570038	52.0	discard	E111 num_heads 6->8 (d_k 96) at d768/8L; WORSE +0.011 (both neighbors worse); 6h/d_k128 firmly head peak -> reset to E106. SHAPE CONVERGED: d768/8L/6h/d_ff1536=3.559411
+69db170	3.616931	65.9	discard	E112 batch 96->128 at d768/8L; MUCH WORSE +0.058 (only 1592 steps/104M tokens; big batch less token-efficient + step-hungry) -> reset E106; try SMALLER
+ca3cb52	3.566889	50.0	discard	E113 batch 96->80 at d768/8L; WORSE +0.0075 (2919 steps but more noise); batch 96 firmly peak (80 & 128 both worse) -> reset E106
+d47303c	3.568039	54.0	discard	E114 muon_lr 0.02->0.025 at d768/8L; WORSE +0.0086 (LR transfers/width-invariant as predicted); 0.02 confirmed -> reset E106. Pivoting to bold architecture
+52e6095	3.568707	54.0	discard	E115 learnable register/memory tokens (M=4/head); WORSE +0.0093 (115M tokens, MFU 11.9; null-sink already covers this; attention-side DOF fails again) -> reset E106
+c14ba75	3.557925	54.0	keep	E116 U-net residual skips (enc->dec, init0 no-op); WIN -0.0015 (no token cost; near noise but init-0 downside=0; sound mechanism). new best 3.557925
+339437f	3.562177	54.0	discard	E117 Muon momentum 0.95->0.9; WORSE +0.0043 (lower momentum = noisier NS direction) -> reset E116; try 0.98
+c14ba75_dup	3.561285	54.0	discard	E118 Muon momentum 0.95->0.98; WORSE +0.0034 (both 0.9 & 0.98 worse); momentum 0.95 confirmed peak -> reset E116
+7f936f1	3.562025	54.0	discard	E119 embedding shortcut (x0->deeper layers, init0); WORSE +0.0041 (redundant w/ value_emb; raw-emb injection disrupts deep reps; only processed-feature U-net skips help) -> reset E116
+827428d	3.567346	54.0	discard	E120 weight_decay 0.1->0.05; WORSE +0.0094 (model wants MORE reg not less; WD on tied emb regularizes output classifier) -> reset E116; try 0.15
+c14ba75_rerun	3.560198	54.0	noise-probe	E121 (accidental E116 re-run, WD0.1 seed0): 3.560198 vs 3.557925 => RUN-TO-RUN NOISE ~0.0023 (GPU nondeterminism). Keep-threshold now >0.003. Head stays E116
+e4b6ba8	3.563820	54.0	discard	E122 causal depthwise conv sublayer (Conformer); WORSE +0.0059 (116M tokens/MFU11.98; ~5% token cost from extra norm+conv+cat; attn+RoPE already cover local); arch ADDITIONS consistently hurt -> reset E116
+9794585	3.569377	54.0	discard	E123 AdamW beta2 0.99->0.95; WORSE +0.0115 (too responsive/noisy 2nd moment) -> reset E116; try 0.999
+c93887e	3.564560	54.0	discard	E124 AdamW beta2 0.99->0.999; WORSE +0.0066 (both 0.95 & 0.999 worse); beta2 0.99 confirmed peak -> reset E116
+bdf9eda	3.568439	54.0	discard	E125 AdamW beta1 0.9->0.95; WORSE +0.0105; beta1 0.9 optimal. AdamW fully characterized (b1=0.9,b2=0.99 both sharp optima) -> reset E116
+ea0a249	3.552029	54.0	keep	E126 LR decay cosine->linear; WIN -0.0059 (>2x noise; no tput change). Undertrained model wants higher late-LR; cosine flat-bottom wastes final steps. new best 3.552029
+ea0a249_rerun	3.553271	confirm	E127 rerun of E126 linear decay: 3.553271 (vs 3.552029). CONFIRMS linear beats cosine ~0.005-0.006 (>2x noise). Head stays E126
+84a7b0c	3.578318	54.0	discard	E128 power-law decay (1-p)^0.7 (gentler); MUCH WORSE +0.026 (under-anneals; too much high-LR). Direction is gamma>1 (LESS high-LR) not <1 -> reset E126
+ea0a249_r2	3.554170	confirm	E129 (3rd linear run, sed no-op): 3.554170. Linear true value ~3.5532 (runs 3.552/3.553/3.554). Head stays E126
+14468bb	3.553034	54.0	discard	E130 power-law decay gamma=1.5; 3.553034 ~= linear (within noise); decay-power is a PLATEAU for gamma>=1, only gamma<1 bad. Keep linear (E126) -> reset
+23aeaaa	3.561976	54.0	discard	E131 muon_lr 0.025 + linear; WORSE ~+0.009 (higher peak bad w/ both schedules; 0.02 robust, shape was the lever) -> reset E126; try 0.015
+d38fbdd	3.553605	54.0	discard	E132 muon_lr 0.015 + linear; 3.553605 ~= linear (within noise); muon_lr PLATEAU [0.015,0.02], 0.025 worse. Keep 0.02 -> reset E126
+d80f22c	3.560955	54.0	discard	E133 alpha_max 2e-2->1.5e-2 + linear; WORSE ~+0.008 (embeddings LR-hungry; 2e-2 optimal, both sides worse) -> reset E126. Motivates decoupled schedule
+be31699	3.562957	54.0	discard	E134 decoupled sched (Muon linear, AdamW gamma0.7); WORSE ~+0.010 (embeddings want linear too; tied output destabilizes w/ sustained late LR); shared linear optimal -> reset E126
+c4ec7d3	3.553371	54.0	discard	E135 warmup 3%->1.5% + linear; 3.553371 ~= linear (within noise); warmup robust. SCHEDULE/LR SPACE FULLY MAPPED, linear decay is the win -> reset E126
+5af587c	3.572488	54.0	discard	E136 soft-cap C 15->30 (looser); WORSE +0.019 (soft-cap is a STRONG lever; looser=overconfident logits=worse). Try TIGHTER -> reset E126
+aa24c71	3.559981	54.0	discard	E137 soft-cap C 15->10 (tighter); WORSE +0.007 (C15 sharp optimum: C10=3.560,C15=3.553,C30=3.572) -> reset E126
+0cabb53	3.558817	55.3	discard	E138 d896/7h/d_ff1792 + linear; WORSE ~+0.006 (107.5M tokens, token-starved); d768 robustly optimal under linear too (frontier is throughput-bound) -> reset E126
+b87fba0	3.555766	54.0	discard	E139 GeGLU (GELU gate) vs SwiGLU; 3.555766 ~= SwiGLU (within noise, SwiGLU marginally better); keep SwiGLU -> reset E126
+6eacb29	3.571505	54.0	discard	E140 d640/5h/12L/d_ff1280 (narrower+deeper); WORSE +0.018 (108.9M tokens, token-starved by depth); d768/8L robustly optimal (both distant basins worse) -> reset E126
+9cb44a4	3.556345	54.0	discard	E141 RoPE theta 10000->5000; ~+0.003 worse (theta 10000 fine; 5000 slightly worse, 1e3 rejected) -> reset E126
+d7b1877	3.555386	54.0	discard	E142 Muon ns_steps 5->6; 3.555386 ~= ns5 (within noise, slightly worse + 120M tokens); ns5 sweet spot (3<5, 6~=5) -> reset E126
+37d2fab	3.560921	54.0	discard	E143 AdamW eps 1e-8->1e-6; WORSE +0.008 (model wants aggressive tiny-eps updates); eps 1e-8 confirmed. AdamW fully tuned -> reset E126
+fbe007b	3.554949	54.0	discard	E144 remove U-net skips (+linear); 3.554949 ~= linear-true (within noise) => U-net was noise-neutral (harmless). Head stays E126 -> reset
+9cfe0e8	3.556007	54.0	discard	E145 alpha_max 2e-2->2.5e-2 + linear; ~+0.003 worse (2e-2 peak, both sides worse under linear too) -> reset E126
+2caaaf1	3.567130	54.0	discard	E146 Polyak tail-averaging (last 25%); WORSE +0.014 (undertrained weights improve monotonically -> averaging LAGS; matches EMA rejection) -> reset E126
+68057e7	3.564577	54.0	discard	E147 Muon heavy-ball (no Nesterov); WORSE +0.011 (Nesterov look-ahead helps); Muon fully characterized -> reset E126
+cbea4b0	3.559240	54.0	discard	E148 residual-scale init 1.0->0.5; WORSE +0.006 (init 1.0 confirmed; residual-scaled init rejection holds) -> reset E126
+1a39090	3.555749	54.0	discard	E149 mid-depth 2nd value-residual source; 3.555749 ~= neutral (within noise, slightly worse); value-pathway saturated too -> reset E126
+c01ad92	3.495483	54.0	keep	E150 COMPILE training cross_entropy; HUGE WIN -0.057 (MFU 12->16.9, tokens 122->163.8M +34%!). Eager fp32 32k-vocab logsumexp was a massive unfused memory-bound bottleneck. new best 3.495483. REOPENS shape (more tokens)
+d35c334	3.499263	47.8	discard	E151 d896/7h/d_ff1792 @ new tput; WORSE +0.004 (139.8M tokens, still token-starved but margin shrank -0.006->-0.004); d768 still width peak -> reset E150
+94057b5	3.495047	54.0	keep	E152 d_ff 1536->1728 @ new tput; 3.495047 ~= tied (within noise) BUT was -0.0045 worse at old tput => FFN optimum shifting UP with +tokens. Keep (best-obs+capacity). new best 3.495047
+405963d	3.500471	54.0	discard	E153 d_ff 1728->1920 @ new tput; WORSE +0.0054 (156.6M tokens, too wide); d_ff peak=1728 at new tput (up from 1536) -> reset E152
+43f062b	3.495846	54.0	discard	E154 num_layers 8->10 @ new tput; 3.495846 ~= tied (138M tokens; was -0.0018 worse before, gap closed but 8L still best+cheaper); keep 8L -> reset E152
+eb3c36f	3.489743	?	keep	E155 batch 96->128 @ new tput; WIN -0.0053 (166M tokens > batch96's 160M! + less noise). Compiled CE removed batch-scaling penalty (was -0.058 at old tput). new best 3.489743
+6cc5852	3.484497	71.0	keep	E156 batch 128->160 @ new tput; WIN -0.0052 (175M tokens + less noise); monotonic 96->128->160 = 3.495->3.490->3.484. new best 3.484497
+c02f9f2	3.488910	77.4	discard	E157 batch 160->176; WORSE +0.0044 (174M tokens, throughput plateaued + mem pressure 77GB); batch 160 is sweet spot @ new tput -> reset E156
+9729e38	3.484283	71.0	keep	E158 muon_lr 0.02->0.025 @ batch160; 3.484283 ~= tied (was WORSE at batch96 => LR optimum shifts up with batch). Keep best-obs. new best 3.484283
+f26536b	3.485584	71.0	discard	E159 muon_lr 0.025->0.03 @ batch160; +0.0013 (within noise, marginally worse); muon_lr peak ~0.025 @ batch160 (up from 0.02) -> reset E158
+d85901f	3.488769	71.0	discard	E160 alpha_max 2e-2->2.5e-2 @ batch160; WORSE +0.0045 (embedding LR robust at 2e-2, does NOT scale w/ batch unlike muon_lr) -> reset E158
+7b1b0e5	3.491846	75.3	discard	E161 d896/7h/d_ff1792 @ batch160; WORSE +0.0076 (149.6M tokens, token-starved); d768 robustly optimal across ALL regimes -> reset E158. Best=3.484283
+011c1b2	3.493947	71.0	discard	E162 WD 0.1->0.15 @ batch160; WORSE +0.0097 (WD 0.1 robust, both 0.05 & 0.15 worse) -> reset E158
+c43c50e	3.485227	71.0	discard	E163 warmup 3%->1.5% @ batch160; 3.485227 ~= tied (3% marginally better); warmup 3% confirmed. NEW REGIME FULLY RE-OPTIMIZED, best=3.484283 -> reset E158
+6846c71	3.482171	71.0	keep	E164 torch.compile the NS function; WIN -0.0021 (MFU 18->19, tokens 175->176.4M; fuses NS launches/elementwise, small matmuls unchanged). new best 3.482171
+054cfef	3.478193	71.0	keep	E165 bmm-NS (batch Muon matrices by shape, big matmuls; verified identical to per-matrix); WIN -0.004 (MFU 19->19.5, tokens 176->180.5M). new best 3.478193
+62a726f	3.481440	71.0	discard	E166 num_layers 8->10 @ full current regime; WORSE +0.0032 (155M tokens); 8L robustly optimal -> reset E165. best=3.478193
+795842a	3.476619	71.0	keep	E167 num_heads 6->8 (d_k96) @ new regime; 3.476619 ~= tied (within noise) BUT was +0.011 WORSE at old regime => head optimum shifted to more heads w/ new regime. Keep best-obs. new best 3.476619
+8996059	3.496701	71.0	discard	E168 num_heads 8->12 (d_k64) @ new regime; MUCH WORSE +0.020 (d_k64 too small); head peak=8h/d_k96 @ new regime (small shift from 6h) -> reset E167. best=3.476619
+05a278d	3.488469	71.0	discard	E169 readout adapter (identity-init d x d before tied output); WORSE +0.0119 (DOF+token cost; tying+out_scale sufficient; additions saturated) -> reset E167. best=3.476619
+70ea0e8	3.483396	71.0	discard	E170 soft-cap C 15->20 @ new regime; WORSE +0.0068 (C15 robust/regime-independent) -> reset E167. best=3.476619
+cab15d3	NA	NA	crash	E171 torch.compile mode=max-autotune; CRASH (inductor scheduler bug: FusedMixOrderReductions assertion). Unusable on this model -> reset E167. best=3.476619
+fb85bc9	3.500878	71.0	discard	E172 Muon momentum 0.95->0.98 @ new regime; MUCH WORSE +0.024 (0.95 robust) -> reset E167. best=3.476619
+93a2aa4	3.515549	71.0	discard	E173 batch 160->168 @ 8h; MUCH WORSE +0.039 (throughput cliff: only 148M tokens, 168 not kernel-aligned); batch 160 firmly optimal -> reset E167. best=3.476619
+a3d492c	3.484674	71.0	discard	E174 alpha_min 3e-5->1e-3; WORSE +0.008 (final cooldown to ~0 helps; linear win was mid-late shape not floor) -> reset E167. best=3.476619
+75dcdee	3.488002	75.7	discard	E175 d832/8h/d_ff1872 fine width; WORSE +0.011 (153M tokens token-starved); d768 definitively width peak (640/832/896 all worse) -> reset E167. best=3.476619
+795842a_rerun	3.475880	confirm	E176 rerun of E167 (best): 3.475880 (vs 3.476619). Best config solidly reproducible ~3.476. Head stays E167
+75f5eac	3.477114	71.0	discard	E177 RoPE theta 10000->20000 @ d_k96; 3.477114 ~= tied (within noise); theta 10000 robust -> keep E167. best ~3.476
+6b74660	3.484439	71.0	discard	E178 partial RoPE (50% rotary); WORSE +0.008 (full RoPE better; attention variants saturated) -> reset E167. best ~3.476
+48f1c5b	3.505454	71.0	discard	E179 Muon weight_decay 0.1->0; MUCH WORSE +0.029 (2D-weight WD is a key regularizer, Muon does NOT self-regularize enough) -> reset E167. best ~3.476
+de56c56	3.475408	71.0	keep	E180 AdamW beta1 0.9->0.85 @ batch160; 3.475408 marginally best (within noise of 0.9; both fine). keep best-obs. new best 3.475408
+9b67b64	3.472666	71.0	keep	E181 AdamW beta1 0.85->0.8 @ batch160; WIN -0.0027 (monotonic 0.9->0.85->0.8; beta1 optimum shifted DOWN with bigger batch = less noise). new best 3.472666
+65d98e1	3.470259	71.0	keep	E182 AdamW beta1 0.8->0.75 @ batch160; WIN -0.0024 (monotonic 0.9->0.75; big batch wants responsive momentum). new best 3.470259
+034af1b	3.468878	71.0	keep	E183 AdamW beta1 0.75->0.7 @ batch160; -0.0014 (monotonic 0.9->0.7 cumulative -0.0077, gains shrinking). new best 3.468878
+886baac	3.467011	71.0	keep	E184 AdamW beta1 0.7->0.6 @ batch160; -0.0019 (monotonic 0.9->0.6 cumulative -0.009). new best 3.467011
+c99fc08	3.466811	71.0	keep	E185 AdamW beta1 0.6->0.5 @ batch160; -0.0002 (FLAT, trend flattening; beta1 optimum plateau ~0.5-0.6). new best 3.466811
+cc5b5a7	3.473500	71.0	discard	E186 AdamW beta1 0.5->0.4 @ batch160; WORSE +0.0067 (turnover); beta1 optimum ~0.5 (shifted from 0.9 @ batch96, cumulative -0.0092) -> reset E185. best=3.466811
+faa0543	3.473949	71.0	discard	E187 AdamW beta2 0.99->0.95 @ batch160/beta1 0.5; WORSE +0.0071 (2nd moment robust at 0.99, unlike beta1) -> reset E185. best=3.466811
+8ce6517	3.467725	71.0	discard	E188 Muon momentum 0.95->0.9 @ batch160/beta1 0.5; +0.0009 (within noise, 0.95 best); Muon mom did NOT shift (orthogonalizes buffer, wants smooth dir) unlike beta1 -> reset E185. best=3.466811
+7abb0ec	3.468504	71.0	discard	E189 alpha_max 2e-2->2.5e-2 @ beta1 0.5; +0.0017 (within noise, 2e-2 best; robust, didn't shift w/ beta1). AdamW fully re-opt (only beta1 shifted 0.9->0.5) -> reset E185. best=3.466811
+c99fc08_rerun	3.466371	confirm	E190 rerun of E185 (best, beta1 0.5): 3.466371 (vs 3.466811). Best config confirmed ~3.466. Head stays E185
+73ee021	3.470291	71.0	discard	E191 d_ff 1728->1856 @ full regime; WORSE ~+0.004 (token cost); d_ff 1728 robust -> reset E185. best ~3.466
+85f735f	3.468500	71.0	discard	E192 muon_lr 0.025->0.03 @ beta1 0.5; +0.002 (within noise, 0.025 best); robust, didn't shift w/ beta1 -> reset E185. best ~3.466
+b86f2ee	3.475190	71.0	discard	E193 warmup 3%->1.5% @ beta1 0.5; WORSE +0.009 (responsive beta1 needs full warmup; was tied at beta1 0.9) -> reset E185. best ~3.466
+4522698	3.471245	71.0	discard	E194 cosine decay @ final regime (beta1 0.5); WORSE ~+0.005 (linear-decay win HOLDS at beta1 0.5, regime-independent) -> reset E185. best ~3.466
+40878e3	3.468448	71.0	discard	E195 power-law gamma=1.5 @ beta1 0.5; +0.002 (within noise, ~=linear; decay-power plateau >=1 holds at beta1 0.5) -> reset E185. best ~3.466
+6fc12d0	3.474596	71.0	discard	E196 d_ff 1728->1600 @ full regime; WORSE ~+0.008; d_ff 1728 firmly peak (1600/1856/1920 all worse) -> reset E185. best ~3.466
+f13ed21	3.467454	71.0	discard	E197 AdamW eps 1e-8->1e-7 @ beta1 0.5; +0.0009 (within noise, 1e-8 best); eps robust -> reset E185. best ~3.466
+12c732e	3.469131	71.0	discard	E198 muon_lr 0.025->0.02 @ beta1 0.5; +0.0027 (0.025 firmly peak: 0.02 & 0.03 both worse, sharper at beta1 0.5) -> reset E185. best ~3.466
+f8116df	3.477390	71.0	discard	E199 weight_decay 0.1->0.15 @ beta1 0.5; WORSE +0.011 (WD 0.1 robust, regime-independent) -> reset E185. best ~3.466
+6e3c56a	3.467539	71.0	discard	E200 beta1 0.5->0.55; +0.0009 (within noise, beta1 0.5 peak: 0.4 worse, 0.55/0.6 marginally worse) -> reset E185. MILESTONE: best ~3.466 from 5.281 baseline over 200 experiments
+3c1ff79	3.470412	75.1	discard	E201 decoupled value dim d_v 96->128; WORSE ~+0.004 (169M tokens, token cost; value-pathway benefit is INFORMATION not raw capacity; attention-side saturated) -> reset E185. best ~3.466
+dc813b2	3.477830	71.0	discard	E202 batch 160->128 @ beta1 0.5; WORSE +0.011 (168M tokens); batch 160 confirmed at final regime -> reset E185. best ~3.466
+(9L)	NA	NA	crash	E203 num_layers 9; CRASH (IndexError - U-net skip assumes even layers, 9L decoder>skip_weights). Not a real result; 9L low-EV (between 8/10) -> reset E185. best ~3.466
+c23080a	3.471295	71.0	discard	E204 remove gated attention; WORSE ~+0.005 (despite +tokens 179M; gate is a genuine win, validated at final regime) -> reset E185. best ~3.466
+e331dbd	3.469206	71.0	discard	E205 batch 160->144 @ beta1 0.5; +0.0026 (173M tokens, marginally worse); batch 160 firmly peak (128 worse, 144 worse, 168/176 cliff) -> reset E185. best ~3.466
+70e13d3	3.469165	71.0	discard	E206 Muon ns_steps 5->4; +0.0026 (marginally worse, under-ortho; no token gain since bmm-NS cheap); ns5 confirmed -> reset E185. best ~3.466
+dee5044	3.474854	71.0	discard	E207 sandwich norm (post-sublayer RMSNorm); WORSE ~+0.008 (model already well-normalized; even norm additions fail - fully saturated) -> reset E185. best ~3.466
+c8181a4	3.468357	71.0	discard	E208 emb init std 0.02->0.03; +0.0017 (within noise, absorbed by learnable scales); 0.02 confirmed -> reset E185. best ~3.466
+0af3dad	3.466737	71.0	discard	E209 RMSNorm eps 1e-5->1e-6; +0.0001 (negligible, eps<<RMS^2); 1e-5 confirmed -> reset E185. best ~3.466. CONVERGED.

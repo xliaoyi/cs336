@@ -164,3 +164,7 @@ cython_debug/
 
 cs336_basics/tiny_stories*
 cs336_basics/wandb/
+
+cs336_basics/owt_valid.npy
+cs336_basics/owt_train.npy
+checkpoints/
