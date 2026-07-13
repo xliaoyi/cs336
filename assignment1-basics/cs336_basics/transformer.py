@@ -348,6 +348,25 @@ def zeropower_via_newtonschulz5(G, steps=5):
     return X
 
 
+@torch.compile
+def zeropower_via_newtonschulz5_batched(G, steps=5):
+    # E165: batched NS over a stack [N, m, n] of same-shape matrices -> big efficient bmm matmuls
+    # (vs N tiny per-matrix matmuls). Math-identical per matrix (Frobenius norm over last 2 dims).
+    a, b, c = 3.4445, -4.7750, 2.0315
+    X = G.bfloat16()
+    transposed = X.shape[-2] > X.shape[-1]
+    if transposed:
+        X = X.transpose(-2, -1)
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    for _ in range(steps):
+        A = X @ X.transpose(-2, -1)
+        B = b * A + c * (A @ A)
+        X = a * X + B @ X
+    if transposed:
+        X = X.transpose(-2, -1)
+    return X
+
+
 class Muon(torch.optim.Optimizer):
     # Momentum orthogonalized by Newton-Schulz, for 2D hidden weight matrices.
     def __init__(self, params, lr, momentum=0.95, weight_decay=0.0, ns_steps=5):
@@ -362,6 +381,8 @@ class Muon(torch.optim.Optimizer):
             momentum = group['momentum']
             wd = group['weight_decay']
             ns_steps = group['ns_steps']
+            # Compute Nesterov momentum update per param, grouped by shape for batched NS.
+            by_shape = {}
             for p in group['params']:
                 if p.grad is None:
                     continue
@@ -372,12 +393,16 @@ class Muon(torch.optim.Optimizer):
                 buf = state['m']
                 buf.mul_(momentum).add_(g)          # heavy-ball momentum
                 update = g.add(buf, alpha=momentum)  # Nesterov
-                update = zeropower_via_newtonschulz5(update, ns_steps)
-                # scale so update RMS is ~shape-invariant (Keller Jordan)
-                scale = max(1.0, p.shape[0] / p.shape[1]) ** 0.5
-                if wd != 0:
-                    p.mul_(1 - lr * wd)
-                p.add_(update.to(p.dtype), alpha=-lr * scale)
+                by_shape.setdefault(tuple(p.shape), []).append((p, update))
+            # Batched Newton-Schulz per shape-group, then apply.
+            for shape, items in by_shape.items():
+                stacked = torch.stack([u for (_, u) in items], dim=0)  # [N, m, n]
+                stacked = zeropower_via_newtonschulz5_batched(stacked, ns_steps)
+                scale = max(1.0, shape[0] / shape[1]) ** 0.5
+                for i, (p, _) in enumerate(items):
+                    if wd != 0:
+                        p.mul_(1 - lr * wd)
+                    p.add_(stacked[i].to(p.dtype), alpha=-lr * scale)
         return loss
 
 
