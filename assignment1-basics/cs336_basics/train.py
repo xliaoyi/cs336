@@ -26,7 +26,7 @@ parser.add_argument("--vocab_size", type=int, default=32000, help="Vocabulary si
 parser.add_argument("--num_layers", type=int, default=8, help="Number of Transformer layers.")
 parser.add_argument("--d_model", type=int, default=768, help="Transformer hidden dimension.")
 parser.add_argument("--num_heads", type=int, default=6, help="Number of attention heads.")
-parser.add_argument("--d_ff", type=int, default=1536, help="Feed-forward hidden dimension.")
+parser.add_argument("--d_ff", type=int, default=1728, help="Feed-forward hidden dimension.")
 parser.add_argument("--theta", type=float, default=10000.0, help="RoPE base frequency.")
 parser.add_argument("--beta1", type=float, default=0.9, help="AdamW beta1.")
 parser.add_argument("--beta2", type=float, default=0.99, help="AdamW beta2.")
