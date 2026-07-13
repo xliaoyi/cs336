@@ -97,6 +97,9 @@ def main():
             muon_params.append(p)
 
     model = torch.compile(model, dynamic=False)  # static shapes; first-step compile excluded from budget
+    # E150: compile the training cross-entropy so the fp32 logsumexp over the 32k-vocab logits
+    # (a big eager, unfused memory-bound op) gets fused; eval keeps the plain eager cross_entropy.
+    ce_train = torch.compile(cross_entropy, dynamic=False)
 
     opt_adam = AdamW(adam_params, args.alpha_max, (args.beta1, args.beta2), args.eps, args.weight_decay)
     opt_muon = Muon(muon_params, args.muon_lr, momentum=0.95, weight_decay=args.weight_decay)
@@ -141,7 +144,7 @@ def main():
         opt_muon.zero_grad()
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             y = model(train_input_tokens)
-            loss = cross_entropy(y, train_next_tokens)
+            loss = ce_train(y, train_next_tokens)
         loss.backward()
         gradient_clipping(model.parameters(), args.max_l2_norm)
         opt_muon.step()
