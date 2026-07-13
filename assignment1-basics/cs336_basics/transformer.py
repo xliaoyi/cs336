@@ -328,7 +328,9 @@ def cross_entropy(o, x):
     nll = torch.log(torch.sum(torch.exp(o), keepdim=True, dim = -1)) - torch.gather(o, dim=-1, index=x)
     return torch.mean(nll)
 
+@torch.compile
 def zeropower_via_newtonschulz5(G, steps=5):
+    # E164: compile the NS iteration (fuse the per-matrix matmuls/elementwise; reduce launches)
     # Approximate orthogonalization of a 2D matrix via a quintic Newton-Schulz iteration
     # (Keller Jordan's Muon). Drives all singular values toward 1. Runs in bf16.
     a, b, c = 3.4445, -4.7750, 2.0315
